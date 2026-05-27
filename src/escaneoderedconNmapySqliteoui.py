@@ -1,6 +1,36 @@
 import sqlite3
+import socket
 import nmap
-import data
+import json
+import os
+
+
+# =========================
+# RUTAS BASE DEL PROYECTO
+# =========================
+
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+# Ruta del JSON OUI
+RUTA_JSON = os.path.join(
+    BASE_DIR,
+    "globales",
+    "oui.json"
+)
+
+# Ruta de la base de datos
+RUTA_DB = os.path.join(
+    BASE_DIR,
+    "data",
+    "red.db"
+)
+
+print(f"JSON: {RUTA_JSON}")
+print(f"DB: {RUTA_DB}")
 
 
 class EscanerRedDB:
@@ -14,11 +44,12 @@ class EscanerRedDB:
         self.cursor = self.conn.cursor()
 
         self.create_table()
+
         try:
 
             self.cursor.execute("""
                 ALTER TABLE dispositivos
-                ADD COLUMN marca_oui TEXT
+                ADD COLUMN hostname TEXT
             """)
 
             self.conn.commit()
@@ -26,12 +57,19 @@ class EscanerRedDB:
         except sqlite3.OperationalError:
 
             pass
-        # Cargar archivo JSON OUI
-        with open("oui.json", "r", encoding="utf-8") as archivo:
 
+        # =========================
+        # CARGAR JSON OUI
+        # =========================
+
+        with open(RUTA_JSON, "r", encoding="utf-8") as archivo:
+        
             self.oui_data = json.load(archivo)
 
-    # Crear tabla
+    # =========================
+    # CREAR TABLA
+    # =========================
+
     def create_table(self):
 
         self.cursor.execute('''
@@ -40,31 +78,51 @@ class EscanerRedDB:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ip TEXT,
                 mac TEXT UNIQUE,
-                marca_oui TEXT,
-                fabricante TEXT
+                fabricante TEXT,
+                hostname TEXT
             )
         ''')
 
         self.conn.commit()
 
-    # Buscar marca OUI
-    def buscar_oui(self, mac):
+    # =========================
+    # BUSCAR OUI
+    # =========================
+
+    def buscar_fabricante(self, mac):
 
         prefijo = mac.upper()[0:8]
 
-        return self.oui_data.get(prefijo, "Desconocido")
+        return self.oui_data.get(
+            prefijo,
+            "Desconocido"
+        )
 
-    # Guardar dispositivo
-    def guardar_dispositivo(self, ip, mac, marca_oui, fabricante):
+    # =========================
+    # GUARDAR DISPOSITIVO
+    # =========================
+
+    def guardar_dispositivo(
+        self,
+        ip,
+        mac,
+        hostname,
+        fabricante
+    ):
 
         try:
 
             self.cursor.execute('''
                 INSERT INTO dispositivos
-                (ip, mac, marca_oui, fabricante)
+                (ip, mac, hostname, fabricante)
 
                 VALUES (?, ?, ?, ?)
-            ''', (ip, mac, marca_oui, fabricante))
+            ''', (
+                ip,
+                mac,
+                hostname,
+                fabricante
+            ))
 
             self.conn.commit()
 
@@ -72,11 +130,15 @@ class EscanerRedDB:
 
             pass
 
-    # Mostrar dispositivos
+    # =========================
+    # MOSTRAR DISPOSITIVOS
+    # =========================
+
     def mostrar_dispositivos(self):
 
         self.cursor.execute('''
-            SELECT id, ip, mac, marca_oui, fabricante
+            SELECT id, ip, mac,
+                   hostname, fabricante
             FROM dispositivos
         ''')
 
@@ -90,7 +152,7 @@ class EscanerRedDB:
             f"| {'N°':<4}"
             f"| {'IP':<18}"
             f"| {'MAC':<20}"
-            f"| {'MARCA_OUI':<15}"
+            f"| {'HOSTNAME':<15}"
             f"| {'FABRICANTE':<35}|"
         )
 
@@ -108,8 +170,12 @@ class EscanerRedDB:
 
         print("=" * 110)
 
-    # Escanear red
+    # =========================
+    # ESCANEAR RED
+    # =========================
+
     def escanear_red(self, rango_red):
+
 
         scanner = nmap.PortScanner()
 
@@ -117,12 +183,21 @@ class EscanerRedDB:
 
         try:
 
-            scanner.scan(hosts=rango_red, arguments='-O -sS -Pn')   
-            #scanner.scan(hosts=rango_red, arguments='-sn -PR -n')
+            scanner.scan(
+                hosts=rango_red,
+                arguments='''
+                    -O
+                    -sS
+                    -sV
+                    -Pn
+                    --script nbstat
+                    --script smb-os-discovery
+                '''
+            )
 
         except nmap.nmap.PortScannerError as e:
 
-            print(f"Error al ejecutar Nmap: {e}")
+            print(f"Error Nmap: {e}")
 
             return
 
@@ -134,48 +209,103 @@ class EscanerRedDB:
 
                 mac = scanner[host]['addresses']['mac']
 
-                fabricante = scanner[host]['vendor'].get(
-                    mac,
-                    'Desconocido'
-                )
+                # =========================
+                # FABRICANTE
+                # =========================
 
-                # Limpiar caracteres raros
-                fabricante = fabricante.encode(
-                    'latin-1',
-                    errors='ignore'
-                ).decode(
-                    'utf-8',
-                    errors='ignore'
-                )
+                fabricante = self.buscar_fabricante(mac)
 
-                marca_oui = self.buscar_oui(mac)
+                # =========================
+                # HOSTNAME
+                # =========================
+
+                hostname = "Desconocido"
+
+                # Método 1: hostname directo Nmap
+                try:
+
+                    nombre_nmap = scanner[host].hostname()
+
+                    if nombre_nmap:
+
+                        hostname = nombre_nmap
+
+                except:
+
+                    pass
+
+                # Método 2: reverse DNS
+                if hostname == "Desconocido":
+
+                    try:
+
+                        hostname_dns = socket.gethostbyaddr(ip)[0]
+
+                        if hostname_dns:
+
+                            hostname = hostname_dns
+
+                    except:
+
+                        pass
+
+                # Método 3: scripts NSE
+                if hostname == "Desconocido":
+
+                    try:
+
+                        hostscript = scanner[host].get('hostscript', [])
+
+                        for script in hostscript:
+
+                            salida = script.get('output', '')
+
+                            if salida:
+
+                                hostname = salida.split('\n')[0][:50]
+                                break
+
+                    except:
+
+                        pass
 
                 self.guardar_dispositivo(
                     ip,
                     mac,
-                    marca_oui,
+                    hostname,
                     fabricante
                 )
 
-    # Cerrar conexión
+                print(
+                    f"[+] {ip} | "
+                    f"{mac} | "
+                    f"{hostname} | "
+                    f"{fabricante}"
+                )
+    # =========================
+    # CERRAR CONEXIÓN
+    # =========================
+
     def close(self):
 
         self.conn.close()
 
 
+# =========================
+# MAIN
+# =========================
+
 if __name__ == "__main__":
 
-    db = EscanerRedDB('red.db')
+    db = EscanerRedDB(RUTA_DB)
 
     red = input(
         "Introduce el rango de red "
         "(ejemplo 192.168.1.0/24): "
     )
 
-    # Escaneo
     db.escanear_red(red)
 
-    # Mostrar tabla bonita
     db.mostrar_dispositivos()
 
     db.close()
