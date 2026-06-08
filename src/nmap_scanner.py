@@ -185,14 +185,7 @@ class EscanerRedDB:
 
             scanner.scan(
                 hosts=rango_red,
-                arguments='''
-                    -O
-                    -sS
-                    -sV
-                    -Pn
-                    --script nbstat
-                    --script smb-os-discovery
-                '''
+                arguments='-sn -PR -n'
             )
 
         except nmap.nmap.PortScannerError as e:
