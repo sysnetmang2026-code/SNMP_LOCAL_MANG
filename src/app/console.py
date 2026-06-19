@@ -133,27 +133,139 @@ def pedir_password_wpa():
         print("La contrasena WPA debe tener entre 8 y 64 caracteres.")
 
 
-def cargar_config_red_invitados(router):
-    config = router.esperar_config_red_invitados(timeout=20, interval=2)
+def cargar_config_red_invitados(router, band):
+    config = router.esperar_config_red_invitados(band=band, timeout=20, interval=2)
 
     if config is None:
         raise RuntimeError(
-            "El router no esta listo para mostrar la red de invitados. "
+            f"El router no esta listo para mostrar la red de invitados {band} GHz. "
             "Espere unos segundos e intente de nuevo."
         )
 
     return config
 
 
-def activar_red_invitados():
+def cargar_config_red_primaria(router, band):
+    config = router.esperar_config_red_primaria(band=band, timeout=20, interval=2)
+
+    if config is None:
+        raise RuntimeError(
+            f"El router no esta listo para mostrar la red primaria {band} GHz. "
+            "Espere unos segundos e intente de nuevo."
+        )
+
+    return config
+
+
+def cambiar_ssid_red_primaria(band, etiqueta):
     router = crear_cliente_router()
-    config = cargar_config_red_invitados(router)
+    config = cargar_config_red_primaria(router, band)
+    ssid_actual = config["ssid"] or "(sin nombre)"
+
+    print(f"\nRed primaria {etiqueta}")
+    print(f"SSID actual: {ssid_actual}")
+
+    nuevo_ssid = pedir_texto_no_vacio("Nuevo SSID: ")
+
+    if not preguntar_si_no("Desea aplicar este nuevo SSID a la red primaria?"):
+        print("Operacion cancelada.")
+        return
+
+    router.cambiar_ssid_red_primaria(nuevo_ssid, band=band)
+    config_actualizada = router.esperar_config_red_primaria(
+        ssid=nuevo_ssid,
+        band=band,
+        timeout=25,
+        interval=2,
+    )
+
+    if config_actualizada is None or config_actualizada["ssid"] != nuevo_ssid:
+        print("\nCambio enviado al router.")
+        print("No se pudo confirmar todavia porque el router dejo de responder unos segundos.")
+        print("Espere 10 segundos y consulte de nuevo el estado.")
+        return
+
+    print("\nSSID de la red primaria actualizado.")
+    print(f"SSID: {config_actualizada['ssid']}")
+
+
+def cambiar_password_red_primaria(band, etiqueta):
+    router = crear_cliente_router()
+    config = cargar_config_red_primaria(router, band)
+    password_actual = config["password"] or "(sin contrasena configurada)"
+
+    print(f"\nRed primaria {etiqueta}")
+    print(f"Contrasena actual: {password_actual}")
+
+    nueva_password = pedir_password_wpa()
+
+    if not preguntar_si_no("Desea aplicar esta nueva contrasena a la red primaria?"):
+        print("Operacion cancelada.")
+        return
+
+    router.cambiar_password_red_primaria(nueva_password, band=band)
+    config_actualizada = router.esperar_config_red_primaria(
+        password=nueva_password,
+        band=band,
+        timeout=25,
+        interval=2,
+    )
+
+    if config_actualizada is None or config_actualizada["password"] != nueva_password:
+        print("\nCambio enviado al router.")
+        print("No se pudo confirmar todavia porque el router dejo de responder unos segundos.")
+        print("Espere 10 segundos y consulte de nuevo el estado.")
+        return
+
+    print("\nContrasena de la red primaria actualizada.")
+
+
+def configurar_ocultar_ssid_red_primaria(band, etiqueta):
+    router = crear_cliente_router()
+    config = cargar_config_red_primaria(router, band)
+
+    print(f"\nRed primaria {etiqueta}")
+    print(f"SSID actual: {config['ssid'] or '(sin nombre)'}")
+
+    if config["oculto"] is None:
+        print("Estado actual: no se pudo leer si el SSID esta oculto.")
+    else:
+        estado = "oculto" if config["oculto"] else "visible"
+        print(f"Estado actual: SSID {estado}")
+
+    ocultar = preguntar_si_no("Desea ocultar el SSID de la red primaria?", default=True)
+
+    if not preguntar_si_no("Desea aplicar este cambio de visibilidad?"):
+        print("Operacion cancelada.")
+        return
+
+    router.configurar_ocultar_ssid_red_primaria(ocultar, band=band)
+    config_actualizada = router.esperar_config_red_primaria(
+        oculto=ocultar,
+        band=band,
+        timeout=25,
+        interval=2,
+    )
+
+    if config_actualizada is None or config_actualizada["oculto"] != ocultar:
+        print("\nCambio enviado al router.")
+        print("No se pudo confirmar todavia porque el router dejo de responder unos segundos.")
+        print("Espere 10 segundos y consulte de nuevo el estado.")
+        return
+
+    estado = "oculto" if config_actualizada["oculto"] else "visible"
+    print(f"\nSSID de la red primaria ahora esta {estado}.")
+
+
+def activar_red_invitados(band, etiqueta):
+    router = crear_cliente_router()
+    config = cargar_config_red_invitados(router, band)
 
     estado = "habilitada" if config["habilitada"] else "deshabilitada"
     ssid = config["ssid"] or "(sin nombre)"
     password = config["password"] or "(sin contrasena configurada)"
 
-    print("\nRed de invitados 2.4GHz")
+    print(f"\nRed de invitados {etiqueta}")
     print(f"Estado actual: {estado}")
 
     if preguntar_si_no("Desea cambiar el SSID de la red de invitados?"):
@@ -171,13 +283,14 @@ def activar_red_invitados():
         nueva_password = None
         print(f"Contrasena actual: {password}")
 
-    router.activar_red_invitados(ssid=nuevo_ssid, password=nueva_password)
+    router.activar_red_invitados(ssid=nuevo_ssid, password=nueva_password, band=band)
     ssid_esperado = nuevo_ssid if nuevo_ssid is not None else config["ssid"]
     password_esperada = nueva_password if nueva_password is not None else config["password"]
     config_actualizada = router.esperar_config_red_invitados(
         habilitada=True,
         ssid=ssid_esperado,
         password=password_esperada,
+        band=band,
         timeout=25,
         interval=2,
     )
@@ -193,12 +306,12 @@ def activar_red_invitados():
     print(f"Contrasena: {config_actualizada['password']}")
 
 
-def desactivar_red_invitados():
+def desactivar_red_invitados(band, etiqueta):
     router = crear_cliente_router()
-    config = cargar_config_red_invitados(router)
+    config = cargar_config_red_invitados(router, band)
     ssid = config["ssid"] or "(sin nombre)"
 
-    print("\nRed de invitados 2.4GHz")
+    print(f"\nRed de invitados {etiqueta}")
     print(f"Estado actual: {'habilitada' if config['habilitada'] else 'deshabilitada'}")
     print(f"SSID: {ssid}")
 
@@ -210,9 +323,10 @@ def desactivar_red_invitados():
         print("Operacion cancelada.")
         return
 
-    router.desactivar_red_invitados()
+    router.desactivar_red_invitados(band=band)
     config_actualizada = router.esperar_config_red_invitados(
         habilitada=False,
+        band=band,
         timeout=25,
         interval=2,
     )
@@ -224,6 +338,118 @@ def desactivar_red_invitados():
         return
 
     print("Red de invitados desactivada.")
+
+
+def alternar_red_invitados(band, etiqueta):
+    router = crear_cliente_router()
+    config = cargar_config_red_invitados(router, band)
+
+    if config["habilitada"]:
+        desactivar_red_invitados(band, etiqueta)
+    else:
+        activar_red_invitados(band, etiqueta)
+
+
+def alternar_red_primaria(band, etiqueta):
+    otra_banda = "5" if band == "2.4" else "2.4"
+    otra_etiqueta = "5 GHz" if otra_banda == "5" else "2.4 GHz"
+    router = crear_cliente_router()
+    config = cargar_config_red_primaria(router, band)
+    otra_config = cargar_config_red_primaria(router, otra_banda)
+
+    estado = "habilitada" if config["habilitada"] else "deshabilitada"
+    print(f"\nRed primaria {etiqueta}")
+    print(f"Estado actual: {estado}")
+    print(f"SSID actual: {config['ssid'] or '(sin nombre)'}")
+
+    if not config["habilitada"]:
+        if not preguntar_si_no("Desea activar esta red primaria?"):
+            print("Operacion cancelada.")
+            return
+
+        router.activar_red_primaria(band=band)
+        config_actualizada = router.esperar_config_red_primaria(
+            habilitada=True,
+            band=band,
+            timeout=25,
+            interval=2,
+        )
+
+        if config_actualizada is None or not config_actualizada["habilitada"]:
+            print("Cambio enviado al router, pero no se pudo confirmar todavia.")
+            return
+
+        print(f"Red primaria {etiqueta} activada.")
+        return
+
+    if not preguntar_si_no("Desea desactivar esta red primaria?"):
+        print("Operacion cancelada.")
+        return
+
+    if not otra_config["habilitada"]:
+        print(f"No se pueden apagar ambas redes primarias a la vez.")
+        print(f"La red primaria {otra_etiqueta} esta deshabilitada.")
+
+        if not preguntar_si_no(f"Desea activar la red {otra_etiqueta} y apagar {etiqueta}?"):
+            print("Operacion cancelada.")
+            return
+
+        router.activar_red_primaria(band=otra_banda)
+        otra_actualizada = router.esperar_config_red_primaria(
+            habilitada=True,
+            band=otra_banda,
+            timeout=25,
+            interval=2,
+        )
+
+        if otra_actualizada is None or not otra_actualizada["habilitada"]:
+            print(f"No se pudo confirmar que la red {otra_etiqueta} quedara activa.")
+            print("Por seguridad no se apago la red actual.")
+            return
+
+    router.desactivar_red_primaria(band=band)
+    config_actualizada = router.esperar_config_red_primaria(
+        habilitada=False,
+        band=band,
+        timeout=25,
+        interval=2,
+    )
+
+    if config_actualizada is None or config_actualizada["habilitada"]:
+        print("Cambio enviado al router, pero no se pudo confirmar todavia.")
+        return
+
+    print(f"Red primaria {etiqueta} desactivada.")
+
+
+def configurar_banda_wifi(band, etiqueta):
+    while True:
+        print("\n" + "=" * 44)
+        print(f"Configurar red {etiqueta}")
+        print("=" * 44)
+        print("1. Cambiar SSID")
+        print("2. Cambiar contrasena")
+        print("3. Mostrar / Ocultar el SSID")
+        print("4. Activar / Desactivar la red de invitados")
+        print("5. Activar / Desactivar la red primaria")
+        print("0. Volver")
+
+        choice = input("Seleccione una opcion: ").strip()
+
+        if choice == "1":
+            cambiar_ssid_red_primaria(band, etiqueta)
+        elif choice == "2":
+            cambiar_password_red_primaria(band, etiqueta)
+        elif choice == "3":
+            configurar_ocultar_ssid_red_primaria(band, etiqueta)
+        elif choice == "4":
+            alternar_red_invitados(band, etiqueta)
+        elif choice == "5":
+            alternar_red_primaria(band, etiqueta)
+        elif choice == "0":
+            break
+        else:
+            print("Opcion no valida.")
 
 
 def escanear_con_nmap():
@@ -253,8 +479,8 @@ def main():
         print("2. Control de acceso: ver MAC bloqueadas")
         print("3. Control de acceso: bloquear MAC")
         print("4. Control de acceso: desbloquear MAC")
-        print("5. Red de invitados 2.4GHz: activar")
-        print("6. Red de invitados 2.4GHz: desactivar")
+        print("5. Configurar la red 2.4 GHz")
+        print("6. Configurar la red 5 GHz")
         print("7. Escanear red con Nmap")
         print("0. Salir")
 
@@ -270,9 +496,9 @@ def main():
             elif choice == "4":
                 desbloquear_mac()
             elif choice == "5":
-                activar_red_invitados()
+                configurar_banda_wifi("2.4", "2.4 GHz")
             elif choice == "6":
-                desactivar_red_invitados()
+                configurar_banda_wifi("5", "5 GHz")
             elif choice == "7":
                 escanear_con_nmap()
             elif choice == "0":

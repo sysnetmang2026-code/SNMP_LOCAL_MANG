@@ -10,6 +10,10 @@ src/
   config.py            Rutas y credenciales desde env/credenciales.env
   validators.py        Validaciones compartidas
   main.py              Entrada recomendada para pruebas de consola
+
+data/
+  red.db               Base de datos local
+  oui.json             Referencia OUI para fabricantes por MAC
 ```
 
 ## Router KAON
@@ -34,4 +38,3 @@ python src/main.py
 ```
 
 La carpeta `test/` queda sin cambios para que el equipo que trabaja SNMP pueda seguir subiendo sus archivos.
-

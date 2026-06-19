@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
-GLOBAL_DATA_DIR = BASE_DIR / "globales"
 ENV_FILE = BASE_DIR / "env" / "credenciales.env"
 
 load_dotenv(ENV_FILE)
@@ -17,6 +16,5 @@ ROUTER_HOST = os.getenv("ROUTER_HOST", "192.168.1.1")
 ROUTER_USER = os.getenv("ROUTER_USER")
 ROUTER_PASS = os.getenv("ROUTER_PASS")
 
-OUI_JSON_PATH = GLOBAL_DATA_DIR / "oui.json"
+OUI_JSON_PATH = DATA_DIR / "oui.json"
 DATABASE_PATH = DATA_DIR / "red.db"
-
