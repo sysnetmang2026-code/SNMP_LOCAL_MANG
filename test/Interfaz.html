@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gestión Intuitiva — MikroTik</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    :root {
+      --bg:        #080d18;
+      --surface:   #0e1628;
+      --surface2:  #131e35;
+      --border:    rgba(99, 155, 255, 0.12);
+      --border-hi: rgba(99, 155, 255, 0.35);
+      --text:      #dce6f8;
+      --muted:     #6b80a8;
+      --brand:     #4f8eff;
+      --cyan:      #1fd5cc;
+      --green:     #22c97a;
+      --red:       #f05252;
+      --yellow:    #f5a623;
+      --mono:      'JetBrains Mono', monospace;
+      --sans:      'Inter', system-ui, sans-serif;
+      --radius:    14px;
+      --shadow:    0 8px 32px rgba(0,0,0,.45);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse 70% 40% at 15% -5%, rgba(79,142,255,.08) 0%, transparent 50%),
+        radial-gradient(ellipse 50% 30% at 85% 5%,  rgba(31,213,204,.06) 0%, transparent 50%);
+    }
+
+    /* ── HEADER ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 36px;
+      height: 64px;
+      background: rgba(14,22,40,.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 800; font-size: 17px; letter-spacing: -.2px;
+    }
+    .logo-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--brand);
+      box-shadow: 0 0 8px var(--brand);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .5; transform: scale(.85); }
+    }
+    .header-meta {
+      font-family: var(--mono);
+      font-size: 12px; color: var(--muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+    .status-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+    /* ── LAYOUT ── */
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 40px 24px 60px; }
+
+    /* ── REINICIAR ── */
+    .top-bar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 36px;
+    }
+    .btn-restart {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: 1px solid rgba(240,82,82,.35);
+      background: rgba(240,82,82,.08);
+      color: #f8a0a0;
+      font: 600 14px var(--sans);
+      cursor: pointer;
+      transition: background .18s, border-color .18s, transform .15s;
+    }
+    .btn-restart:hover {
+      background: rgba(240,82,82,.15);
+      border-color: rgba(240,82,82,.6);
+      transform: translateY(-2px);
+    }
+    .btn-restart svg { width: 16px; height: 16px; }
+
+    /* ── GRID PRINCIPAL ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+    @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .grid { grid-template-columns: 1fr; } }
+
+    /* ── TARJETA BOTÓN ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 20px 22px;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 12px; text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, transform .2s, box-shadow .2s;
+      position: relative; overflow: hidden;
+      user-select: none;
+    }
+    .card::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 50% 0%, rgba(79,142,255,.07), transparent 65%);
+      opacity: 0; transition: opacity .2s;
+    }
+    .card:hover { border-color: var(--border-hi); transform: translateY(-4px); box-shadow: var(--shadow); }
+    .card:hover::before { opacity: 1; }
+    .card:active { transform: translateY(-1px); }
+
+    .card-icon {
+      width: 52px; height: 52px; border-radius: 50%;
+      display: grid; place-items: center;
+      background: rgba(79,142,255,.1);
+      border: 1px solid rgba(79,142,255,.2);
+      flex-shrink: 0;
+    }
+    .card-icon svg { width: 24px; height: 24px; }
+
+    /* colores por tarjeta */
+    .card.cyan  .card-icon { background: rgba(31,213,204,.1);  border-color: rgba(31,213,204,.25); }
+    .card.cyan  .card-icon svg { color: var(--cyan); }
+    .card.green .card-icon { background: rgba(34,201,122,.1);  border-color: rgba(34,201,122,.25); }
+    .card.green .card-icon svg { color: var(--green); }
+    .card.yellow .card-icon { background: rgba(245,166,35,.1); border-color: rgba(245,166,35,.25); }
+    .card.yellow .card-icon svg { color: var(--yellow); }
+    .card.blue  .card-icon { background: rgba(79,142,255,.1);  border-color: rgba(79,142,255,.25); }
+    .card.blue  .card-icon svg { color: var(--brand); }
+
+    .card-title { font-weight: 700; font-size: 15px; line-height: 1.3; }
+    .card-desc  { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    /* ── PANEL DE DATOS ── */
+    .panel {
+      margin-top: 32px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: none;
+    }
+    .panel.visible { display: block; }
+
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .panel-title {
+      font-weight: 700; font-size: 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel-title svg { width: 16px; height: 16px; opacity: .7; }
+
+    .btn-close {
+      background: none; border: none;
+      color: var(--muted); cursor: pointer;
+      font-size: 18px; line-height: 1;
+      padding: 2px 6px; border-radius: 6px;
+      transition: color .15s, background .15s;
+    }
+    .btn-close:hover { color: var(--text); background: rgba(255,255,255,.07); }
+
+    .panel-body { padding: 24px; }
+
+    /* tabla de datos */
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table tr { border-bottom: 1px solid var(--border); }
+    .data-table tr:last-child { border-bottom: none; }
+    .data-table td {
+      padding: 11px 6px;
+      font-size: 14px;
+    }
+    .data-table td:first-child { color: var(--muted); width: 55%; }
+    .data-table td:last-child  {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--text);
+      font-weight: 600;
+      text-align: right;
+    }
+
+    /* velocidad — barras */
+    .speed-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 600px) { .speed-grid { grid-template-columns: 1fr; } }
+
+    .speed-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .speed-label {
+      font-size: 12px; color: var(--muted);
+      margin-bottom: 6px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .6px;
+    }
+    .speed-value {
+      font-family: var(--mono);
+      font-size: 28px; font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .speed-card.rx .speed-value { color: var(--cyan); }
+    .speed-card.tx .speed-value { color: var(--brand); }
+
+    .speed-bar-bg {
+      height: 6px; border-radius: 3px;
+      background: rgba(255,255,255,.07);
+      overflow: hidden;
+    }
+    .speed-bar-fill {
+      height: 100%; border-radius: 3px;
+      transition: width .6s ease;
+    }
+    .speed-card.rx .speed-bar-fill { background: linear-gradient(90deg, var(--cyan), rgba(31,213,204,.4)); }
+    .speed-card.tx .speed-bar-fill { background: linear-gradient(90deg, var(--brand), rgba(79,142,255,.4)); }
+
+    /* estado de carga / error */
+    .state-msg {
+      text-align: center;
+      padding: 32px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .state-msg.error { color: var(--red); }
+
+    /* spinner */
+    .spinner {
+      display: inline-block;
+      width: 20px; height: 20px;
+      border: 2px solid rgba(255,255,255,.1);
+      border-top-color: var(--brand);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    footer {
+      margin-top: 48px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot" id="statusDot"></div>
+    Gestión Intuitiva
+  </div>
+  <div class="header-meta">
+    <div class="status-dot" id="connDot"></div>
+    <span id="connLabel">Conectando...</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="top-bar">
+    <button class="btn-restart" onclick="accionReiniciar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/>
+      </svg>
+      Reiniciar router
+    </button>
+  </div>
+
+  <div class="grid">
+
+    <!-- 1. Info general -->
+    <div class="card blue" onclick="abrirPanel('general')">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <path d="M8 21h8M12 17v4"/>
+        </svg>
+      </div>
+      <div class="card-title">Info del sistema</div>
+      <div class="card-desc">Nombre, descripción y uptime del router</div>
+    </div>
+
+    <!-- 2. Velocidad -->
+    <div class="card cyan" onclick="abrirPanel('velocidad')">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 20a8 8 0 1 1 16 0"/><path d="M12 12l4 3"/>
+        </svg>
+      </div>
+      <div class="card-title">Velocidad de red</div>
+      <div class="card-desc">Subida y bajada en MB — ether1</div>
+    </div>
+
+    <!-- 3. Interfaces -->
+    <div class="card green" onclick="abrirPanel('interfaces')">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </div>
+      <div class="card-title">Interfaces</div>
+      <div class="card-desc">Número de interfaces activas</div>
+    </div>
+
+    <!-- 4. Escaneo MAC/IP -->
+    <div class="card yellow" onclick="abrirPanel('dispositivos')">
+      <div class="card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="6" width="18" height="12" rx="2"/>
+          <path d="M7 10h10M7 14h6"/>
+        </svg>
+      </div>
+      <div class="card-title">Dispositivos</div>
+      <div class="card-desc">IPs y MACs conectadas a la red</div>
+    </div>
+
+  </div>
+
+  <!-- ── PANEL DE DATOS ── -->
+  <div class="panel" id="dataPanel">
+    <div class="panel-header">
+      <div class="panel-title" id="panelTitle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+        </svg>
+        <span>Panel</span>
+      </div>
+      <button class="btn-close" onclick="cerrarPanel()">&#x2715;</button>
+    </div>
+    <div class="panel-body" id="panelBody">
+      <div class="state-msg">Selecciona una opción arriba.</div>
+    </div>
+  </div>
+
+  <footer>MikroTik &nbsp;·&nbsp; 192.168.56.2 &nbsp;·&nbsp; SNMP v2c &nbsp;·&nbsp; community: public</footer>
+
+</main>
+
+<script>
+  // ─────────────────────────────────────────────
+  // Ruta al fichero generado por prueba.py
+  // Ajusta si tu servidor sirve desde otra ruta
+  // ─────────────────────────────────────────────
+  const API_URL = 'http://127.0.0.1:5000/api/datos';
+
+  // ── Pedir datos al servidor Flask ──
+  async function leerDatos() {
+    const resp = await fetch(API_URL + '?t=' + Date.now());
+    if (!resp.ok) throw new Error('Servidor no disponible. Ejecuta servidor.py');
+    const datos = await resp.json();
+    if (datos.error) throw new Error(datos.error);
+    return datos;
+  }
+
+  // ── Estado de conexión
+
+  // ── Estado de conexión en el header ──
+  async function actualizarEstado() {
+    try {
+      const d = await leerDatos();
+      const dot   = document.getElementById('connDot');
+      const label = document.getElementById('connLabel');
+      if (d['Nombre del router']) {
+        dot.classList.remove('offline');
+        label.textContent = d['Nombre del router'] + '  —  online';
+      }
+    } catch {
+      document.getElementById('connDot').classList.add('offline');
+      document.getElementById('connLabel').textContent = 'Sin respuesta';
+    }
+  }
+  actualizarEstado();
+  setInterval(actualizarEstado, 10000);
+
+  // ── Abrir panel ──
+  let panelActivo = null;
+
+  async function abrirPanel(tipo) {
+    panelActivo = tipo;
+    const panel = document.getElementById('dataPanel');
+    const body  = document.getElementById('panelBody');
+    const title = document.getElementById('panelTitle').querySelector('span');
+
+    panel.classList.add('visible');
+    body.innerHTML = '<div class="state-msg"><span class="spinner"></span>Leyendo datos...</div>';
+
+    const titulos = {
+      general:      'Info del sistema',
+      velocidad:    'Velocidad de red — ether1',
+      interfaces:   'Interfaces',
+      dispositivos: 'Dispositivos en la red',
+    };
+    title.textContent = titulos[tipo] || tipo;
+
+    try {
+      const datos = await leerDatos();
+      renderPanel(tipo, datos, body);
+    } catch (err) {
+      body.innerHTML = `<div class="state-msg error">
+        No se pudo leer el fichero de datos.<br>
+        Ejecuta <strong>Menu.py</strong> y realiza una consulta primero.<br>
+        <small style="color:#888">${err.message}</small>
+      </div>`;
+    }
+  }
+
+  function cerrarPanel() {
+    panelActivo = null;
+    // Detener tiempo real de velocidad si estaba activo
+    if (intervaloVelocidad) {
+      clearInterval(intervaloVelocidad);
+      intervaloVelocidad = null;
+    }
+    // Detener cronometro de uptime si estaba activo
+    if (intervaloUptime) {
+      clearInterval(intervaloUptime);
+      intervaloUptime = null;
+    }
+    document.getElementById('dataPanel').classList.remove('visible');
+  }
+
+  // ── Renderizar según tipo ──
+  function renderPanel(tipo, datos, container) {
+    switch (tipo) {
+      case 'general':     renderGeneral(datos, container);      break;
+      case 'velocidad':   renderVelocidad(datos, container);    break;
+      case 'interfaces':  renderInterfaces(datos, container);   break;
+      case 'dispositivos':renderDispositivos(datos, container); break;
+    }
+  }
+
+  // ── General ──
+  let intervaloUptime = null;      // guarda el setInterval del cronometro
+  let segundosUptime  = 0;         // contador de segundos acumulados
+
+  // Convierte "Xd HH:MM:SS" a segundos totales
+  function uptimeASegundos(str) {
+    try {
+      const partes = str.match(/(\d+)d\s*(\d+):(\d+):(\d+)/);
+      if (!partes) return 0;
+      const dias = parseInt(partes[1]);
+      const h    = parseInt(partes[2]);
+      const m    = parseInt(partes[3]);
+      const s    = parseInt(partes[4]);
+      return dias * 86400 + h * 3600 + m * 60 + s;
+    } catch { return 0; }
+  }
+
+  // Convierte segundos totales a formato "Xd HH:MM:SS"
+  function segundosAUptime(seg) {
+    const dias = Math.floor(seg / 86400);
+    const h    = Math.floor((seg % 86400) / 3600);
+    const m    = Math.floor((seg % 3600) / 60);
+    const s    = seg % 60;
+    return dias + 'd ' +
+      String(h).padStart(2,'0') + ':' +
+      String(m).padStart(2,'0') + ':' +
+      String(s).padStart(2,'0');
+  }
+
+  // Arranca el cronometro del uptime - recomendacion de Oscar
+  function iniciarCronometroUptime(uptimeInicial) {
+    // Detener cronometro anterior si existia
+    if (intervaloUptime) clearInterval(intervaloUptime);
+
+    // Convertir el uptime inicial a segundos
+    segundosUptime = uptimeASegundos(uptimeInicial);
+
+    // Actualizar el display cada 1 segundo (setInterval de Oscar)
+    intervaloUptime = setInterval(function() {
+      segundosUptime++;
+      const el = document.getElementById('uptime-display');
+      if (el) {
+        el.textContent = segundosAUptime(segundosUptime);
+      } else {
+        // Si el elemento ya no existe (panel cerrado), detener
+        clearInterval(intervaloUptime);
+        intervaloUptime = null;
+      }
+    }, 1000);
+  }
+
+  function renderGeneral(d, el) {
+    const uptimeValor = d['Uptime'] || '0d 00:00:00';
+    const filas = [
+      ['Nombre del router', d['Nombre del router']       || '—'],
+      ['Descripcion',       d['Descripcion del sistema'] || '—'],
+      ['Ultima actualizacion', d['ultima_actualizacion'] || '—'],
+    ];
+    el.innerHTML = `
+      <table class="data-table">
+        ${filas.map(([k,v]) => `
+          <tr><td>${k}</td><td>${v}</td></tr>
+        `).join('')}
+        <tr>
+          <td>Uptime</td>
+          <td id="uptime-display" style="color:var(--cyan);font-family:var(--mono);font-weight:700">
+            ${uptimeValor}
+          </td>
+        </tr>
+      </table>
+      <p style="margin-top:14px;font-size:11px;color:var(--muted);text-align:right">
+        Cronometro activo en tiempo real
+      </p>`;
+
+    // Arrancar el cronometro con el valor que vino de Python
+    iniciarCronometroUptime(uptimeValor);
+  }
+
+  // ── Velocidad ──
+  let intervaloVelocidad = null;
+
+  function renderVelocidad(d, el) {
+    const rx = d['RX ether1 (MB)'] || d['RX ether1 (bytes)'] || '0';
+    const tx = d['TX ether1 (MB)'] || d['TX ether1 (bytes)'] || '0';
+
+    const rxNum = parseFloat(rx) || 0;
+    const txNum = parseFloat(tx) || 0;
+    const max   = Math.max(rxNum, txNum, 0.0001);
+    const rxPct = Math.min((rxNum / max) * 100, 100).toFixed(1);
+    const txPct = Math.min((txNum / max) * 100, 100).toFixed(1);
+
+    const hora = d['ultima_actualizacion'] || 'desconocida';
+
+    el.innerHTML = `
+      <div class="speed-grid">
+        <div class="speed-card rx">
+          <div class="speed-label">Bajada &nbsp;(RX)</div>
+          <div class="speed-value" id="val-rx">${rx}</div>
+          <div class="speed-bar-bg">
+            <div class="speed-bar-fill" id="bar-rx" style="width:${rxPct}%"></div>
+          </div>
+        </div>
+        <div class="speed-card tx">
+          <div class="speed-label">Subida &nbsp;(TX)</div>
+          <div class="speed-value" id="val-tx">${tx}</div>
+          <div class="speed-bar-bg">
+            <div class="speed-bar-fill" id="bar-tx" style="width:${txPct}%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;flex-wrap:wrap;gap:10px">
+        <p style="font-size:12px;color:var(--muted);margin:0">
+          Datos de ether1 &nbsp;·&nbsp; Actualizado: <span id="hora-speed">${hora}</span>
+        </p>
+        <div style="display:flex;gap:10px;align-items:center">
+          <span id="live-badge" style="display:none;font-size:11px;color:var(--green);font-family:var(--mono);
+            background:rgba(34,201,122,.1);border:1px solid rgba(34,201,122,.2);
+            padding:3px 10px;border-radius:20px;">
+            EN VIVO
+          </span>
+          <button id="btn-live" onclick="toggleLiveSpeed()"
+            style="padding:8px 18px;border-radius:8px;border:1px solid var(--border);
+              background:rgba(79,142,255,.1);color:var(--brand);font:600 13px var(--sans);
+              cursor:pointer;transition:background .18s,transform .15s">
+            Activar tiempo real
+          </button>
+          <button onclick="refrescarVelocidad()"
+            style="padding:8px 14px;border-radius:8px;border:1px solid var(--border);
+              background:rgba(255,255,255,.05);color:var(--text);font:600 13px var(--sans);
+              cursor:pointer;transition:background .18s,transform .15s"
+            title="Refrescar ahora">
+            &#8635; Refrescar
+          </button>
+        </div>
+      </div>`;
+  }
+
+  async function refrescarVelocidad() {
+    const body = document.getElementById('panelBody');
+    try {
+      const datos = await leerDatos();
+      const rx = datos['RX ether1 (MB)'] || datos['RX ether1 (bytes)'] || '0';
+      const tx = datos['TX ether1 (MB)'] || datos['TX ether1 (bytes)'] || '0';
+      const rxNum = parseFloat(rx) || 0;
+      const txNum = parseFloat(tx) || 0;
+      const max   = Math.max(rxNum, txNum, 0.0001);
+
+      // Actualiza solo los valores sin re-renderizar todo
+      const elRx = document.getElementById('val-rx');
+      const elTx = document.getElementById('val-tx');
+      const elBRx = document.getElementById('bar-rx');
+      const elBTx = document.getElementById('bar-tx');
+      const elHora = document.getElementById('hora-speed');
+
+      if (elRx) elRx.textContent = rx;
+      if (elTx) elTx.textContent = tx;
+      if (elBRx) elBRx.style.width = Math.min((rxNum/max)*100,100).toFixed(1) + '%';
+      if (elBTx) elBTx.style.width = Math.min((txNum/max)*100,100).toFixed(1) + '%';
+      if (elHora) elHora.textContent = datos['ultima_actualizacion'] || '—';
+    } catch {
+      // silencioso si falla un refresco puntual
+    }
+  }
+
+  function toggleLiveSpeed() {
+    const btn   = document.getElementById('btn-live');
+    const badge = document.getElementById('live-badge');
+    if (intervaloVelocidad) {
+      clearInterval(intervaloVelocidad);
+      intervaloVelocidad = null;
+      btn.textContent = 'Activar tiempo real';
+      btn.style.background = 'rgba(79,142,255,.1)';
+      btn.style.color = 'var(--brand)';
+      btn.style.borderColor = 'var(--border)';
+      badge.style.display = 'none';
+    } else {
+      refrescarVelocidad(); // refresco inmediato
+      intervaloVelocidad = setInterval(refrescarVelocidad, 3000); // cada 3 segundos
+      btn.textContent = 'Detener tiempo real';
+      btn.style.background = 'rgba(34,201,122,.1)';
+      btn.style.color = 'var(--green)';
+      btn.style.borderColor = 'rgba(34,201,122,.3)';
+      badge.style.display = 'inline';
+    }
+  }
+
+  // ── Interfaces ──
+  function renderInterfaces(d, el) {
+    const n = d['Numero de interfaces'] || '—';
+    const filas = [
+      ['Número de interfaces', n],
+      ['Interfaz monitoreada', 'ether1'],
+      ['Última actualización', d['ultima_actualizacion'] || '—'],
+    ];
+    el.innerHTML = `
+      <table class="data-table">
+        ${filas.map(([k,v]) => `
+          <tr><td>${k}</td><td>${v}</td></tr>
+        `).join('')}
+      </table>`;
+  }
+
+  // ── Dispositivos ──
+  function renderDispositivos(d, el) {
+    el.innerHTML = `
+      <div class="state-msg" style="color:var(--yellow)">
+        El escaneo de IPs y MACs se implementa en la próxima etapa del proyecto.<br>
+        <span style="font-size:12px;color:var(--muted);display:block;margin-top:8px">
+          Se integrará con nmap o la ARP table del MikroTik vía SNMP.
+        </span>
+      </div>`;
+  }
+
+  // ── Reiniciar ──
+  function accionReiniciar() {
+    if (!confirm('¿Confirmas que deseas reiniciar el router MikroTik?')) return;
+    alert('Función de reinicio pendiente de integración con el backend Python.');
+  }
+
+  // ── Auto-refresh del panel activo cada 10s ──
+  setInterval(async () => {
+    if (!panelActivo) return;
+    try {
+      const datos = await leerDatos();
+      const body  = document.getElementById('panelBody');
+      renderPanel(panelActivo, datos, body);
+    } catch { /* silencioso */ }
+  }, 10000);
+</script>
+
+</body>
+</html>
