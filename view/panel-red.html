@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gestor WiFi KAON - Panel de red</title>
+  <link rel="stylesheet" href="panel-red.css">
+</head>
+<body>
+  <aside class="sidebar" aria-label="Navegacion principal">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">K</span>
+      <div>
+        <strong>Gestor WiFi</strong>
+        <span>Router KAON</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item is-active" data-view="dashboard" type="button">
+        <span class="nav-icon" aria-hidden="true">IN</span>
+        Inicio
+      </button>
+      <button class="nav-item" data-view="devices" type="button">
+        <span class="nav-icon" aria-hidden="true">IP</span>
+        Dispositivos
+      </button>
+      <button class="nav-item" data-view="access" type="button">
+        <span class="nav-icon" aria-hidden="true">MA</span>
+        Control MAC
+      </button>
+      <button class="nav-item" data-view="guest" type="button">
+        <span class="nav-icon" aria-hidden="true">GI</span>
+        Invitados
+      </button>
+      <button class="nav-item" data-view="scan" type="button">
+        <span class="nav-icon" aria-hidden="true">NM</span>
+        Escaneo Nmap
+      </button>
+    </nav>
+
+    <div class="router-card">
+      <span class="status-dot"></span>
+      <div>
+        <strong>Router activo</strong>
+        <span>192.168.1.1</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Administracion local</p>
+        <h1>Panel de red</h1>
+      </div>
+      <div class="top-actions">
+        <button class="button secondary" type="button">Reiniciar</button>
+        <button class="button primary" type="button" id="scanNow">Escanear red</button>
+      </div>
+    </header>
+
+    <section class="view is-visible" id="dashboard" aria-labelledby="dashboard-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Resumen</p>
+          <h2 id="dashboard-title">Estado general</h2>
+        </div>
+        <span class="freshness">Ultima lectura: hace 2 min</span>
+      </div>
+
+      <div class="metrics">
+        <article class="metric">
+          <span class="metric-label">Conectados</span>
+          <strong>12</strong>
+          <small>3 nuevos hoy</small>
+        </article>
+        <article class="metric">
+          <span class="metric-label">MAC bloqueadas</span>
+          <strong>4</strong>
+          <small>Filtro activo</small>
+        </article>
+        <article class="metric">
+          <span class="metric-label">Red invitados</span>
+          <strong>Activa</strong>
+          <small>SSID: Invitados_Casa</small>
+        </article>
+        <article class="metric warning">
+          <span class="metric-label">Senal baja</span>
+          <strong>2</strong>
+          <small>Revisar ubicacion</small>
+        </article>
+      </div>
+
+      <div class="content-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h3>Actividad reciente</h3>
+            <button class="link-button" type="button">Ver todo</button>
+          </div>
+          <ol class="activity-list">
+            <li>
+              <span class="activity-dot success"></span>
+              <div>
+                <strong>Escaneo Nmap completado</strong>
+                <p>Se detectaron 12 dispositivos en 192.168.1.0/24.</p>
+              </div>
+            </li>
+            <li>
+              <span class="activity-dot danger"></span>
+              <div>
+                <strong>MAC bloqueada</strong>
+                <p>AA:9F:22:10:BC:44 fue agregada al control de acceso.</p>
+              </div>
+            </li>
+            <li>
+              <span class="activity-dot"></span>
+              <div>
+                <strong>Red de invitados actualizada</strong>
+                <p>La clave WPA fue modificada correctamente.</p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="panel compact">
+          <div class="panel-header">
+            <h3>Acciones rapidas</h3>
+          </div>
+          <div class="quick-actions">
+            <button class="quick-action" type="button" data-view-link="devices">Ver clientes</button>
+            <button class="quick-action" type="button" data-view-link="access">Bloquear MAC</button>
+            <button class="quick-action" type="button" data-view-link="guest">Red invitados</button>
+            <button class="quick-action" type="button" data-view-link="scan">Nmap</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="view" id="devices" aria-labelledby="devices-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Clientes 2.4GHz</p>
+          <h2 id="devices-title">Dispositivos conectados</h2>
+        </div>
+        <button class="button primary" type="button">Actualizar</button>
+      </div>
+
+      <section class="panel">
+        <div class="table-toolbar">
+          <input class="search" type="search" placeholder="Buscar por IP, MAC, hostname o fabricante">
+          <select class="select" aria-label="Filtrar dispositivos">
+            <option>Todos</option>
+            <option>Permitidos</option>
+            <option>Senal baja</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Estado</th>
+                <th>IP</th>
+                <th>MAC</th>
+                <th>Hostname</th>
+                <th>Fabricante</th>
+                <th>RSSI</th>
+                <th>Velocidad</th>
+                <th>Accion</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="badge success">Permitido</span></td>
+                <td>192.168.1.22</td>
+                <td>84:7B:57:19:2A:10</td>
+                <td>laptop-mayo</td>
+                <td>Intel Corporate</td>
+                <td>-48 dBm</td>
+                <td>144 Mbps</td>
+                <td><button class="danger-link" type="button">Bloquear</button></td>
+              </tr>
+              <tr>
+                <td><span class="badge warning">Revisar</span></td>
+                <td>192.168.1.31</td>
+                <td>F0:99:BF:2C:41:89</td>
+                <td>android-tv</td>
+                <td>Samsung</td>
+                <td>-72 dBm</td>
+                <td>39 Mbps</td>
+                <td><button class="danger-link" type="button">Bloquear</button></td>
+              </tr>
+              <tr>
+                <td><span class="badge success">Permitido</span></td>
+                <td>192.168.1.45</td>
+                <td>3C:52:A1:90:13:FE</td>
+                <td>telefono-casa</td>
+                <td>Xiaomi</td>
+                <td>-55 dBm</td>
+                <td>72 Mbps</td>
+                <td><button class="danger-link" type="button">Bloquear</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" id="access" aria-labelledby="access-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Seguridad</p>
+          <h2 id="access-title">Control de acceso MAC</h2>
+        </div>
+      </div>
+
+      <div class="content-grid">
+        <section class="panel">
+          <h3>Bloquear dispositivo</h3>
+          <form class="form">
+            <label>
+              Direccion MAC
+              <input type="text" placeholder="AA:BB:CC:DD:EE:FF">
+            </label>
+            <label>
+              Motivo
+              <input type="text" placeholder="Equipo desconocido">
+            </label>
+            <button class="button danger" type="button">Bloquear MAC</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h3>MAC bloqueadas</h3>
+            <span class="badge danger">4 activas</span>
+          </div>
+          <ul class="blocked-list">
+            <li><span>AA:9F:22:10:BC:44</span><button type="button">Desbloquear</button></li>
+            <li><span>70:4F:57:88:A1:10</span><button type="button">Desbloquear</button></li>
+            <li><span>9C:20:7B:14:65:E2</span><button type="button">Desbloquear</button></li>
+          </ul>
+        </section>
+      </div>
+    </section>
+
+    <section class="view" id="guest" aria-labelledby="guest-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">WiFi temporal</p>
+          <h2 id="guest-title">Red de invitados 2.4GHz</h2>
+        </div>
+        <label class="switch">
+          <input type="checkbox" checked>
+          <span></span>
+          Activa
+        </label>
+      </div>
+
+      <section class="panel settings-panel">
+        <form class="form two-cols">
+          <label>
+            SSID
+            <input type="text" value="Invitados_Casa">
+          </label>
+          <label>
+            Contrasena WPA
+            <input type="password" value="123456789">
+          </label>
+          <label>
+            Duracion sugerida
+            <select>
+              <option>Siempre activa</option>
+              <option>2 horas</option>
+              <option>6 horas</option>
+              <option>24 horas</option>
+            </select>
+          </label>
+          <label>
+            Limite de dispositivos
+            <input type="number" value="8" min="1" max="20">
+          </label>
+        </form>
+        <div class="form-actions">
+          <button class="button secondary" type="button">Desactivar</button>
+          <button class="button primary" type="button">Guardar cambios</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="view" id="scan" aria-labelledby="scan-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Descubrimiento</p>
+          <h2 id="scan-title">Escaneo Nmap</h2>
+        </div>
+        <button class="button primary" type="button">Iniciar escaneo</button>
+      </div>
+
+      <section class="panel">
+        <div class="scan-banner">
+          <div>
+            <strong>Rango detectado</strong>
+            <span>192.168.1.0/24</span>
+          </div>
+          <div>
+            <strong>Modo</strong>
+            <span>-sn -PR -n</span>
+          </div>
+          <div>
+            <strong>Base de datos</strong>
+            <span>red.db</span>
+          </div>
+        </div>
+        <div class="progress" aria-label="Progreso de escaneo">
+          <span style="width: 68%"></span>
+        </div>
+        <p class="hint">Vista demo: aqui se mostraria el avance y luego la tabla historica de dispositivos detectados.</p>
+      </section>
+    </section>
+  </main>
+
+  <script src="panel-red.js"></script>
+</body>
+</html>

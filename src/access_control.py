@@ -1,71 +1,39 @@
-import os
-import re
-import paramiko
-from dotenv import load_dotenv
-
-load_dotenv()
-
-ROUTER_HOST = os.getenv("ROUTER_HOST")
-ROUTER_USER = os.getenv("ROUTER_USER")
-ROUTER_PASS = os.getenv("ROUTER_PASS")
-WIFI_IFACE = os.getenv("WIFI_IFACE", "@wifi-iface[0]")
+from config import ROUTER_PASS, ROUTER_URL, ROUTER_USER
+from routers.kaon_client import KaonRouterClient
 
 
-def validar_mac(mac):
-    patron = r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$"
-    return re.match(patron, mac) is not None
-
-
-def ejecutar_comando_ssh(comando):
-    cliente = paramiko.SSHClient()
-    cliente.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    try:
-        cliente.connect(
-            hostname=ROUTER_HOST,
-            username=ROUTER_USER,
-            password=ROUTER_PASS,
-            timeout=10
-        )
-
-        stdin, stdout, stderr = cliente.exec_command(comando)
-
-        salida = stdout.read().decode()
-        error = stderr.read().decode()
-
-        if error:
-            return False, error
-
-        return True, salida
-
-    except Exception as e:
-        return False, str(e)
-
-    finally:
-        cliente.close()
+def crear_cliente_router():
+    return KaonRouterClient(
+        router_url=ROUTER_URL,
+        username=ROUTER_USER,
+        password=ROUTER_PASS,
+    )
 
 
 def bloquear_dispositivo(mac):
-    if not validar_mac(mac):
-        return False, "La dirección MAC no es válida."
+    router = crear_cliente_router()
+    router.bloquear_mac(mac)
+    return True, "Bloqueo listo."
 
-    comandos = f"""
-uci set wireless.{WIFI_IFACE}.macfilter='deny'
-uci add_list wireless.{WIFI_IFACE}.maclist='{mac}'
-uci commit wireless
-wifi reload
-"""
 
-    return ejecutar_comando_ssh(comandos)
+def desbloquear_dispositivo(mac):
+    router = crear_cliente_router()
+    router.desbloquear_mac(mac)
+    return True, "Desbloqueo listo."
 
 
 if __name__ == "__main__":
-    mac_dispositivo = input("Ingrese la MAC del dispositivo a bloquear: ")
+    mac_dispositivo = input("Ingrese la MAC del dispositivo: ")
+    accion = input("Escriba B para bloquear o D para desbloquear: ").strip().upper()
 
-    correcto, respuesta = bloquear_dispositivo(mac_dispositivo)
+    try:
+        if accion == "B":
+            correcto, respuesta = bloquear_dispositivo(mac_dispositivo)
+        elif accion == "D":
+            correcto, respuesta = desbloquear_dispositivo(mac_dispositivo)
+        else:
+            correcto, respuesta = False, "Accion no valida."
 
-    if correcto:
-        print("Dispositivo bloqueado correctamente.")
-    else:
-        print("Error al bloquear dispositivo:")
         print(respuesta)
+    except Exception as error:
+        print(f"Error: {error}")
