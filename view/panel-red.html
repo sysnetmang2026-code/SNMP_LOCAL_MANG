@@ -140,69 +140,38 @@
     <section class="view" id="devices" aria-labelledby="devices-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Clientes 2.4GHz</p>
+          <p class="eyebrow">Clientes conectados</p>
           <h2 id="devices-title">Dispositivos conectados</h2>
         </div>
-        <button class="button primary" type="button">Actualizar</button>
+        <button class="button primary" id="refreshDevices" type="button">Actualizar</button>
       </div>
 
-      <section class="panel">
-        <div class="table-toolbar">
-          <input class="search" type="search" placeholder="Buscar por IP, MAC, hostname o fabricante">
-          <select class="select" aria-label="Filtrar dispositivos">
+      <section class="devices-intro">
+        <div>
+          <strong>Toque un dispositivo para administrarlo</strong>
+          <p>Se muestra el nombre detectado por el router o por Nmap. Puede ponerle un nombre mas facil y guardarlo en la base de datos.</p>
+        </div>
+        <div class="device-filters">
+          <input class="search" id="deviceSearch" type="search" placeholder="Buscar por nombre del dispositivo">
+          <select class="select" id="deviceTypeFilter" aria-label="Filtrar dispositivos">
             <option>Todos</option>
-            <option>Permitidos</option>
-            <option>Senal baja</option>
+            <option value="phone">Celulares</option>
+            <option value="pc">Computadoras</option>
+            <option value="tv">Televisores</option>
+            <option value="camera">Camaras</option>
+            <option value="printer">Impresoras</option>
           </select>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Estado</th>
-                <th>IP</th>
-                <th>MAC</th>
-                <th>Hostname</th>
-                <th>Fabricante</th>
-                <th>RSSI</th>
-                <th>Velocidad</th>
-                <th>Accion</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><span class="badge success">Permitido</span></td>
-                <td>192.168.1.22</td>
-                <td>84:7B:57:19:2A:10</td>
-                <td>laptop-mayo</td>
-                <td>Intel Corporate</td>
-                <td>-48 dBm</td>
-                <td>144 Mbps</td>
-                <td><button class="danger-link" type="button">Bloquear</button></td>
-              </tr>
-              <tr>
-                <td><span class="badge warning">Revisar</span></td>
-                <td>192.168.1.31</td>
-                <td>F0:99:BF:2C:41:89</td>
-                <td>android-tv</td>
-                <td>Samsung</td>
-                <td>-72 dBm</td>
-                <td>39 Mbps</td>
-                <td><button class="danger-link" type="button">Bloquear</button></td>
-              </tr>
-              <tr>
-                <td><span class="badge success">Permitido</span></td>
-                <td>192.168.1.45</td>
-                <td>3C:52:A1:90:13:FE</td>
-                <td>telefono-casa</td>
-                <td>Xiaomi</td>
-                <td>-55 dBm</td>
-                <td>72 Mbps</td>
-                <td><button class="danger-link" type="button">Bloquear</button></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      </section>
+
+      <div class="notice" id="deviceNotice" hidden></div>
+
+      <section class="device-grid" id="deviceGrid" aria-label="Lista de dispositivos conectados">
+        <article class="device-card skeleton">
+          <div class="device-avatar"></div>
+          <h3>Cargando dispositivos</h3>
+          <p>Consultando el router y la base de datos.</p>
+        </article>
       </section>
     </section>
 
@@ -251,21 +220,23 @@
           <h2 id="guest-title">Red de invitados 2.4GHz</h2>
         </div>
         <label class="switch">
-          <input type="checkbox" checked>
+          <input id="guestEnabled" type="checkbox" checked>
           <span></span>
           Activa
         </label>
       </div>
 
+      <div class="notice" id="guestNotice" hidden></div>
+
       <section class="panel settings-panel">
         <form class="form two-cols">
           <label>
             SSID
-            <input type="text" value="Invitados_Casa">
+            <input id="guestSsid" type="text" value="Invitados_Casa">
           </label>
           <label>
             Contrasena WPA
-            <input type="password" value="123456789">
+            <input id="guestPassword" type="password" value="123456789">
           </label>
           <label>
             Duracion sugerida
@@ -283,7 +254,7 @@
         </form>
         <div class="form-actions">
           <button class="button secondary" type="button">Desactivar</button>
-          <button class="button primary" type="button">Guardar cambios</button>
+          <button class="button primary" id="saveGuest" type="button">Guardar cambios</button>
         </div>
       </section>
     </section>
@@ -294,10 +265,11 @@
           <p class="eyebrow">Descubrimiento</p>
           <h2 id="scan-title">Escaneo Nmap</h2>
         </div>
-        <button class="button primary" type="button">Iniciar escaneo</button>
+        <button class="button primary" id="startScan" type="button">Iniciar escaneo</button>
       </div>
 
       <section class="panel">
+        <div class="notice" id="scanNotice" hidden></div>
         <div class="scan-banner">
           <div>
             <strong>Rango detectado</strong>
@@ -319,6 +291,25 @@
       </section>
     </section>
   </main>
+
+  <div class="modal-backdrop" id="actionModal" hidden>
+    <section class="action-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal-close" type="button" aria-label="Cerrar">x</button>
+      <p class="eyebrow">Antes de continuar</p>
+      <h2 id="modalTitle">Accion</h2>
+      <p id="modalCopy">Explicacion de la accion.</p>
+      <div class="rename-field" id="renameField" hidden>
+        <label>
+          Nuevo nombre visible
+          <input id="aliasInput" type="text" placeholder="Ejemplo: Celular de mama">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="button secondary modal-cancel" type="button">Cancelar</button>
+        <button class="button primary modal-confirm" id="modalConfirm" type="button">Entendido</button>
+      </div>
+    </section>
+  </div>
 
   <script src="panel-red.js"></script>
 </body>

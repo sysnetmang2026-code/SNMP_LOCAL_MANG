@@ -10,6 +10,7 @@ src/
   config.py            Rutas y credenciales desde env/credenciales.env
   validators.py        Validaciones compartidas
   main.py              Entrada recomendada para pruebas de consola
+  main_web.py          Servidor web local para el panel frontend/backend
 
 data/
   red.db               Base de datos local
@@ -36,5 +37,23 @@ Ejecutar desde la raiz del proyecto:
 ```powershell
 python src/main.py
 ```
+
+## Panel web local
+
+Ejecutar desde la raiz del proyecto:
+
+```powershell
+python src/main_web.py
+```
+
+Luego abrir:
+
+```text
+http://127.0.0.1:8000
+```
+
+El panel usa rutas JSON bajo `/api/` para listar dispositivos, guardar nombres
+visibles por MAC, bloquear/desbloquear MAC, administrar invitados y ejecutar
+escaneo Nmap.
 
 La carpeta `test/` queda sin cambios para que el equipo que trabaja SNMP pueda seguir subiendo sus archivos.
