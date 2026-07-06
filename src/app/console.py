@@ -1,3 +1,12 @@
+"""Menu interactivo de administracion local para routers KAON.
+
+La consola ofrece operaciones directas sobre el router: listar clientes, aplicar
+filtros MAC, configurar redes primaria e invitados por banda y ejecutar un
+escaneo Nmap sobre la subred local. Cada accion delega la comunicacion HTTP al
+cliente `KaonRouterClient` y centraliza las confirmaciones necesarias para evitar
+cambios accidentales.
+"""
+
 from getpass import getpass
 
 import requests
@@ -10,6 +19,8 @@ from validators import normalize_mac
 
 
 def crear_cliente_router():
+    """Construye un cliente KAON con credenciales y URL de configuracion."""
+
     return KaonRouterClient(
         router_url=ROUTER_URL,
         username=ROUTER_USER,
@@ -19,6 +30,8 @@ def crear_cliente_router():
 
 
 def imprimir_clientes(clientes):
+    """Muestra una tabla de clientes conectados obtenidos desde el router."""
+
     if not clientes:
         print("No se encontraron clientes conectados.")
         return
@@ -48,11 +61,15 @@ def imprimir_clientes(clientes):
 
 
 def listar_clientes_router():
+    """Consulta el router e imprime los clientes WiFi de la banda 2.4 GHz."""
+
     router = crear_cliente_router()
     imprimir_clientes(router.listar_clientes_24ghz())
 
 
 def listar_macs_bloqueadas():
+    """Imprime la lista de direcciones MAC bloqueadas en el router."""
+
     router = crear_cliente_router()
     macs = router.obtener_macs_bloqueadas()
 
@@ -66,6 +83,8 @@ def listar_macs_bloqueadas():
 
 
 def bloquear_mac():
+    """Solicita una MAC por consola y la agrega al filtro de bloqueo."""
+
     mac = input("MAC a bloquear: ")
     router = crear_cliente_router()
     mac_normalizada = normalize_mac(mac)
@@ -81,6 +100,8 @@ def bloquear_mac():
 
 
 def desbloquear_mac():
+    """Solicita una MAC por consola y la elimina del filtro de bloqueo."""
+
     mac = input("MAC a desbloquear: ")
     router = crear_cliente_router()
     mac_normalizada = normalize_mac(mac)
@@ -96,6 +117,8 @@ def desbloquear_mac():
 
 
 def preguntar_si_no(pregunta, default=False):
+    """Pide una confirmacion binaria y devuelve `True` o `False`."""
+
     opciones = "S/n" if default else "s/N"
 
     while True:
@@ -114,6 +137,8 @@ def preguntar_si_no(pregunta, default=False):
 
 
 def pedir_texto_no_vacio(pregunta):
+    """Solicita texto obligatorio hasta recibir un valor no vacio."""
+
     while True:
         valor = input(pregunta).strip()
 
@@ -124,6 +149,8 @@ def pedir_texto_no_vacio(pregunta):
 
 
 def pedir_password_wpa():
+    """Solicita una contrasena WPA valida para redes WiFi."""
+
     while True:
         password = getpass("Nueva contrasena WPA: ")
 
@@ -134,6 +161,8 @@ def pedir_password_wpa():
 
 
 def cargar_config_red_invitados(router, band):
+    """Espera y devuelve la configuracion actual de la red de invitados."""
+
     config = router.esperar_config_red_invitados(band=band, timeout=20, interval=2)
 
     if config is None:
@@ -146,6 +175,8 @@ def cargar_config_red_invitados(router, band):
 
 
 def cargar_config_red_primaria(router, band):
+    """Espera y devuelve la configuracion actual de la red primaria."""
+
     config = router.esperar_config_red_primaria(band=band, timeout=20, interval=2)
 
     if config is None:
@@ -158,6 +189,8 @@ def cargar_config_red_primaria(router, band):
 
 
 def cambiar_ssid_red_primaria(band, etiqueta):
+    """Permite cambiar el SSID de la red primaria en la banda indicada."""
+
     router = crear_cliente_router()
     config = cargar_config_red_primaria(router, band)
     ssid_actual = config["ssid"] or "(sin nombre)"
@@ -190,6 +223,8 @@ def cambiar_ssid_red_primaria(band, etiqueta):
 
 
 def cambiar_password_red_primaria(band, etiqueta):
+    """Permite cambiar la contrasena WPA de la red primaria indicada."""
+
     router = crear_cliente_router()
     config = cargar_config_red_primaria(router, band)
     password_actual = config["password"] or "(sin contrasena configurada)"
@@ -221,6 +256,8 @@ def cambiar_password_red_primaria(band, etiqueta):
 
 
 def configurar_ocultar_ssid_red_primaria(band, etiqueta):
+    """Permite mostrar u ocultar la emision del SSID de la red primaria."""
+
     router = crear_cliente_router()
     config = cargar_config_red_primaria(router, band)
 
@@ -258,6 +295,8 @@ def configurar_ocultar_ssid_red_primaria(band, etiqueta):
 
 
 def activar_red_invitados(band, etiqueta):
+    """Activa la red de invitados y opcionalmente actualiza SSID y clave."""
+
     router = crear_cliente_router()
     config = cargar_config_red_invitados(router, band)
 
@@ -307,6 +346,8 @@ def activar_red_invitados(band, etiqueta):
 
 
 def desactivar_red_invitados(band, etiqueta):
+    """Desactiva la red de invitados despues de confirmar la accion."""
+
     router = crear_cliente_router()
     config = cargar_config_red_invitados(router, band)
     ssid = config["ssid"] or "(sin nombre)"
@@ -341,6 +382,8 @@ def desactivar_red_invitados(band, etiqueta):
 
 
 def alternar_red_invitados(band, etiqueta):
+    """Activa o desactiva la red de invitados segun su estado actual."""
+
     router = crear_cliente_router()
     config = cargar_config_red_invitados(router, band)
 
@@ -351,6 +394,8 @@ def alternar_red_invitados(band, etiqueta):
 
 
 def alternar_red_primaria(band, etiqueta):
+    """Activa o desactiva una red primaria preservando al menos una banda."""
+
     otra_banda = "5" if band == "2.4" else "2.4"
     otra_etiqueta = "5 GHz" if otra_banda == "5" else "2.4 GHz"
     router = crear_cliente_router()
@@ -423,6 +468,8 @@ def alternar_red_primaria(band, etiqueta):
 
 
 def configurar_banda_wifi(band, etiqueta):
+    """Muestra el submenu de configuracion para una banda WiFi especifica."""
+
     while True:
         print("\n" + "=" * 44)
         print(f"Configurar red {etiqueta}")
@@ -453,6 +500,8 @@ def configurar_banda_wifi(band, etiqueta):
 
 
 def escanear_con_nmap():
+    """Detecta la subred local, ejecuta Nmap y muestra dispositivos guardados."""
+
     subnet = get_subnet()
 
     if subnet is None:
@@ -469,6 +518,8 @@ def escanear_con_nmap():
 
 
 def main():
+    """Ejecuta el bucle principal del menu interactivo de consola."""
+
     print("Cliente KAON: confirmacion automatica de timeout activa.")
 
     while True:

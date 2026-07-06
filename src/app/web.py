@@ -1,3 +1,12 @@
+"""Servidor HTTP local y API JSON para el panel de administracion.
+
+El modulo expone archivos estaticos desde `view/` y rutas `/api/` para consultar
+dispositivos, guardar alias, bloquear o desbloquear MAC, administrar la red de
+invitados y lanzar escaneos Nmap. El servidor esta pensado para uso local, por
+eso utiliza `ThreadingHTTPServer` y un `BaseHTTPRequestHandler` ligero en lugar
+de un framework web completo.
+"""
+
 import argparse
 import json
 import mimetypes
@@ -19,6 +28,8 @@ VIEW_DIR = BASE_DIR / "view"
 
 
 def crear_cliente_router():
+    """Construye un cliente KAON con la configuracion global del proyecto."""
+
     return KaonRouterClient(
         router_url=ROUTER_URL,
         username=ROUTER_USER,
@@ -28,6 +39,8 @@ def crear_cliente_router():
 
 
 def infer_device_type(hostname="", fabricante=""):
+    """Clasifica un dispositivo por palabras clave de hostname o fabricante."""
+
     value = f"{hostname} {fabricante}".lower()
 
     if any(word in value for word in ("roku", "tv", "chromecast", "smart-tv", "smarttv")):
@@ -61,6 +74,8 @@ def infer_device_type(hostname="", fabricante=""):
 
 
 def display_name(device, aliases):
+    """Determina el nombre visible priorizando alias, hostname e IP."""
+
     mac = normalize_mac(device.get("mac", ""))
     hostname = device.get("hostname") or device.get("nombre") or ""
     alias = aliases.get(mac)
@@ -75,6 +90,8 @@ def display_name(device, aliases):
 
 
 def normalize_device(device, aliases, blocked_macs=None, source="router"):
+    """Convierte datos de router o base local al contrato usado por el frontend."""
+
     blocked_macs = blocked_macs or set()
     mac = normalize_mac(device.get("mac", ""))
     hostname = device.get("hostname") or "Desconocido"
@@ -98,9 +115,13 @@ def normalize_device(device, aliases, blocked_macs=None, source="router"):
 
 
 class WebHandler(BaseHTTPRequestHandler):
+    """Manejador HTTP que sirve el panel y sus rutas JSON."""
+
     server_version = "GestorWiFiWeb/1.0"
 
     def do_GET(self):
+        """Despacha solicitudes GET entre API JSON y archivos estaticos."""
+
         parsed = urlparse(self.path)
 
         if parsed.path == "/api/devices":
@@ -123,6 +144,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self.serve_static(parsed.path)
 
     def do_POST(self):
+        """Despacha operaciones de escritura recibidas por HTTP POST."""
+
         parsed = urlparse(self.path)
 
         try:
@@ -151,6 +174,8 @@ class WebHandler(BaseHTTPRequestHandler):
             self.respond_json({"ok": False, "error": str(error)}, status=500)
 
     def handle_devices(self):
+        """Responde con dispositivos activos del router o respaldo de SQLite."""
+
         aliases = get_aliases()
 
         try:
@@ -182,10 +207,14 @@ class WebHandler(BaseHTTPRequestHandler):
             })
 
     def handle_blocked(self):
+        """Responde con la lista de MAC actualmente bloqueadas en el router."""
+
         router = crear_cliente_router()
         self.respond_json({"ok": True, "blocked_macs": router.obtener_macs_bloqueadas()})
 
     def handle_guest_config(self, band):
+        """Responde con la configuracion de red de invitados de una banda."""
+
         router = crear_cliente_router()
         self.respond_json({
             "ok": True,
@@ -194,6 +223,8 @@ class WebHandler(BaseHTTPRequestHandler):
         })
 
     def handle_scanned_devices(self):
+        """Responde con dispositivos historicos guardados por el escaner Nmap."""
+
         aliases = get_aliases()
         devices = [
             normalize_device(device, aliases, source="database")
@@ -202,6 +233,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self.respond_json({"ok": True, "devices": devices})
 
     def handle_save_alias(self):
+        """Valida y persiste un alias visible asociado a una MAC."""
+
         payload = self.read_json()
         mac = normalize_mac(payload.get("mac", ""))
 
@@ -213,6 +246,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self.respond_json({"ok": True, "device": alias})
 
     def handle_block_device(self):
+        """Bloquea una MAC desde la API y confirma el estado si hay timeout."""
+
         payload = self.read_json()
         mac = normalize_mac(payload.get("mac", ""))
 
@@ -232,6 +267,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self.respond_json({"ok": True, "message": "Dispositivo bloqueado.", "mac": mac})
 
     def handle_unblock_device(self):
+        """Desbloquea una MAC desde la API y confirma el estado si hay timeout."""
+
         payload = self.read_json()
         mac = normalize_mac(payload.get("mac", ""))
 
@@ -251,6 +288,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self.respond_json({"ok": True, "message": "Dispositivo desbloqueado.", "mac": mac})
 
     def handle_update_guest(self):
+        """Activa o desactiva la red de invitados con los datos recibidos."""
+
         payload = self.read_json()
         router = crear_cliente_router()
         band = payload.get("band", "2.4")
@@ -270,6 +309,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self.respond_json({"ok": True, "message": message})
 
     def handle_scan(self):
+        """Ejecuta Nmap sobre la subred local y devuelve dispositivos guardados."""
+
         subnet = get_subnet()
 
         if subnet is None:
@@ -289,6 +330,8 @@ class WebHandler(BaseHTTPRequestHandler):
         self.handle_scanned_devices()
 
     def serve_static(self, requested_path):
+        """Sirve archivos de `view/` evitando traversal fuera del directorio."""
+
         filename = "panel-red.html" if requested_path in ("", "/") else requested_path.lstrip("/")
         file_path = (VIEW_DIR / filename).resolve()
         view_root = VIEW_DIR.resolve()
@@ -312,11 +355,15 @@ class WebHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def read_json(self):
+        """Lee y decodifica el cuerpo JSON de la solicitud HTTP actual."""
+
         content_length = int(self.headers.get("Content-Length", "0"))
         raw_body = self.rfile.read(content_length).decode("utf-8")
         return json.loads(raw_body or "{}")
 
     def respond_json(self, payload, status=200):
+        """Serializa una respuesta JSON con cabeceras sin cache."""
+
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -326,10 +373,14 @@ class WebHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format, *args):
+        """Redirige el log HTTP al formato simple del servidor local."""
+
         print(f"[web] {self.address_string()} - {format % args}")
 
 
 def main():
+    """Configura argumentos CLI y ejecuta el servidor HTTP local."""
+
     parser = argparse.ArgumentParser(description="Servidor web local del Gestor WiFi KAON")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)

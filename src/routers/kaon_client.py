@@ -1,3 +1,12 @@
+"""Cliente HTTP para administrar routers KAON desde formularios web.
+
+La clase `KaonRouterClient` encapsula autenticacion basica, lectura de paginas
+HTML, extraccion de formularios, aplicacion de cambios por `goform` y
+verificacion posterior cuando el router corta la conexion o responde con timeout.
+El cliente esta especializado en control de acceso MAC y configuracion de redes
+WiFi primaria e invitados.
+"""
+
 import time
 
 import requests
@@ -9,18 +18,22 @@ from validators import is_valid_mac, normalize_mac
 
 
 WIRELESS_MAC_FIELDS = [f"WirelessMac{number:02d}" for number in range(1, 21)]
+# Paginas que cambian la banda activa antes de leer formularios WiFi.
 BAND_URLS = {
     "2.4": "/wlan24G.asp",
     "5": "/wlan5G.asp",
 }
 
 
+# Nombres de campos observados en el formulario de red de invitados KAON.
 GUEST_NETWORK_FIELDS = {
     "GuestNetworkEnable": "estado",
     "GuestServiceSetIdentifier": "ssid",
     "WpaPreSharedKeyGN": "password",
 }
 
+# Los firmwares KAON no siempre usan los mismos nombres. Estas tuplas agrupan
+# variantes equivalentes para SSID, clave, ocultamiento y estado de red primaria.
 PRIMARY_SSID_FIELDS = (
     "ServiceSetIdentifier",
     "PrimaryServiceSetIdentifier",
@@ -49,7 +62,22 @@ PRIMARY_ENABLE_FIELDS = (
 
 
 class KaonRouterClient:
+    """Cliente de alto nivel para operaciones administrativas KAON."""
+
     def __init__(self, router_url, username, password, timeout=10, post_timeout=3):
+        """Inicializa una sesion HTTP autenticada.
+
+        Args:
+            router_url: URL base del router, por ejemplo `http://192.168.1.1`.
+            username: Usuario de autenticacion HTTP basica.
+            password: Contrasena de autenticacion HTTP basica.
+            timeout: Tiempo maximo para lecturas GET.
+            post_timeout: Tiempo maximo para envios POST.
+
+        Raises:
+            ValueError: Si faltan usuario o contrasena.
+        """
+
         if not username or not password:
             raise ValueError("Faltan ROUTER_USER o ROUTER_PASS en env/credenciales.env")
 
@@ -61,54 +89,80 @@ class KaonRouterClient:
         self.session = self._crear_sesion()
 
     def _crear_sesion(self):
+        """Crea una sesion `requests` con autenticacion basica configurada."""
+
         session = requests.Session()
         session.auth = HTTPBasicAuth(self.username, self.password)
         return session
 
     def _reiniciar_sesion(self):
+        """Descarta la sesion actual y crea una nueva autenticada."""
+
         self.session.close()
         self.session = self._crear_sesion()
 
     @property
     def access_url(self):
+        """URL de la pantalla de control de acceso MAC."""
+
         return f"{self.router_url}/wlanAccess.asp"
 
     @property
     def access_form_url(self):
+        """URL del formulario que aplica el control de acceso MAC."""
+
         return f"{self.router_url}/goform/wlanAccess"
 
     @property
     def guest_network_url(self):
+        """URL de lectura de la red de invitados."""
+
         return f"{self.router_url}/wlanGuestNetwork.asp"
 
     @property
     def guest_network_form_url(self):
+        """URL del formulario que aplica cambios de red de invitados."""
+
         return f"{self.router_url}/goform/wlanGuestNetwork"
 
     @property
     def primary_network_url(self):
+        """URL de lectura de la red primaria."""
+
         return f"{self.router_url}/wlanPrimaryNetwork.asp"
 
     @property
     def primary_network_form_url(self):
+        """URL del formulario que aplica cambios de red primaria."""
+
         return f"{self.router_url}/goform/wlanPrimaryNetwork"
 
     def obtener_pagina_acceso(self):
+        """Obtiene el HTML de la pantalla de control de acceso MAC."""
+
         return self._get_autenticado(self.access_url)
 
     def obtener_pagina_red_invitados(self, band="2.4"):
+        """Selecciona la banda y obtiene el HTML de red de invitados."""
+
         self.seleccionar_banda_wifi(band)
         return self._get_autenticado(self.guest_network_url)
 
     def obtener_pagina_red_primaria(self, band="2.4"):
+        """Selecciona la banda y obtiene el HTML de red primaria."""
+
         self.seleccionar_banda_wifi(band)
         return self._get_autenticado(self.primary_network_url)
 
     def seleccionar_banda_wifi(self, band):
+        """Solicita al router cambiar la banda activa del panel web."""
+
         band = self._normalizar_banda(band)
         return self._get_autenticado(f"{self.router_url}{BAND_URLS[band]}")
 
     def _get_autenticado(self, url):
+        """Realiza un GET autenticado y renueva sesion si recibe HTTP 401."""
+
         response = self.session.get(url, timeout=self.timeout)
 
         if response.status_code == 401:
@@ -119,6 +173,8 @@ class KaonRouterClient:
         return response.text
 
     def _post_autenticado(self, url, payload):
+        """Realiza un POST autenticado sin seguir redirecciones del router."""
+
         response = self.session.post(
             url,
             data=payload,
@@ -138,6 +194,8 @@ class KaonRouterClient:
         return response
 
     def listar_clientes_24ghz(self):
+        """Extrae la tabla de clientes conectados desde `wlanAccess.asp`."""
+
         soup = BeautifulSoup(self.obtener_pagina_acceso(), "html.parser")
         table = soup.find("table", {"class": "ListTypeA"})
 
@@ -165,6 +223,8 @@ class KaonRouterClient:
         return clients
 
     def obtener_macs_bloqueadas(self):
+        """Lee las MAC cargadas en los campos `WirelessMac01..20`."""
+
         soup = BeautifulSoup(self.obtener_pagina_acceso(), "html.parser")
         blocked_macs = []
 
@@ -178,6 +238,8 @@ class KaonRouterClient:
         return blocked_macs
 
     def bloquear_mac(self, mac, network_index=0):
+        """Agrega una MAC al filtro de denegacion del router."""
+
         mac = normalize_mac(mac)
 
         if not is_valid_mac(mac):
@@ -194,6 +256,8 @@ class KaonRouterClient:
         return self.aplicar_lista_bloqueo(blocked_macs, network_index=network_index)
 
     def desbloquear_mac(self, mac, network_index=0):
+        """Elimina una MAC del filtro de denegacion del router."""
+
         mac = normalize_mac(mac)
 
         if not is_valid_mac(mac):
@@ -208,6 +272,8 @@ class KaonRouterClient:
         return self.aplicar_lista_bloqueo(blocked_macs, network_index=network_index)
 
     def aplicar_lista_bloqueo(self, blocked_macs, network_index=0):
+        """Aplica la lista completa de MAC bloqueadas en el formulario KAON."""
+
         blocked_macs = [normalize_mac(mac) for mac in blocked_macs if mac]
         payload = {
             "wlanAccessMbssIndexChanged": "0",
@@ -244,6 +310,8 @@ class KaonRouterClient:
         return True
 
     def _lista_bloqueo_fue_aplicada(self, expected_macs):
+        """Verifica si el router ya refleja la lista de bloqueo esperada."""
+
         time.sleep(1)
 
         try:
@@ -254,6 +322,8 @@ class KaonRouterClient:
         return set(current_macs) == set(expected_macs)
 
     def obtener_config_red_invitados(self, band="2.4"):
+        """Devuelve estado, SSID y clave WPA de la red de invitados."""
+
         payload = self._obtener_payload_red_invitados(band=band)
 
         return {
@@ -263,6 +333,8 @@ class KaonRouterClient:
         }
 
     def obtener_config_red_primaria(self, band="2.4"):
+        """Devuelve estado, SSID, clave WPA y visibilidad de red primaria."""
+
         payload = self._obtener_payload_red_primaria(band=band)
         enable_field = self._buscar_campo(payload, PRIMARY_ENABLE_FIELDS)
         hide_field = self._buscar_campo(payload, PRIMARY_HIDE_FIELDS)
@@ -277,6 +349,8 @@ class KaonRouterClient:
         }
 
     def cambiar_ssid_red_primaria(self, ssid, band="2.4", network_index=0):
+        """Actualiza solo el SSID de la red primaria."""
+
         return self._aplicar_config_red_primaria(
             ssid=ssid,
             band=band,
@@ -284,6 +358,8 @@ class KaonRouterClient:
         )
 
     def cambiar_password_red_primaria(self, password, band="2.4", network_index=0):
+        """Actualiza solo la contrasena WPA de la red primaria."""
+
         return self._aplicar_config_red_primaria(
             password=password,
             band=band,
@@ -291,6 +367,8 @@ class KaonRouterClient:
         )
 
     def configurar_ocultar_ssid_red_primaria(self, ocultar, band="2.4", network_index=0):
+        """Configura si la red primaria debe ocultar su SSID."""
+
         return self._aplicar_config_red_primaria(
             ocultar_ssid=ocultar,
             band=band,
@@ -298,6 +376,8 @@ class KaonRouterClient:
         )
 
     def activar_red_primaria(self, band="2.4", network_index=0):
+        """Marca como habilitada la red primaria de la banda indicada."""
+
         return self._aplicar_config_red_primaria(
             habilitada=True,
             band=band,
@@ -305,6 +385,8 @@ class KaonRouterClient:
         )
 
     def desactivar_red_primaria(self, band="2.4", network_index=0):
+        """Marca como deshabilitada la red primaria de la banda indicada."""
+
         return self._aplicar_config_red_primaria(
             habilitada=False,
             band=band,
@@ -320,6 +402,8 @@ class KaonRouterClient:
         band="2.4",
         network_index=0,
     ):
+        """Aplica cambios parciales sobre el formulario de red primaria."""
+
         payload = self._obtener_payload_red_primaria(band=band)
 
         if habilitada is not None:
@@ -383,6 +467,8 @@ class KaonRouterClient:
         return True
 
     def activar_red_invitados(self, ssid=None, password=None, band="2.4", network_index=0):
+        """Habilita la red de invitados y conserva o actualiza SSID/clave."""
+
         payload = self._obtener_payload_red_invitados(band=band)
 
         if ssid is not None:
@@ -427,6 +513,8 @@ class KaonRouterClient:
         return True
 
     def desactivar_red_invitados(self, band="2.4", network_index=0):
+        """Deshabilita la red de invitados de la banda seleccionada."""
+
         payload = self._obtener_payload_red_invitados(band=band)
         payload["CurrentNetworks"] = str(network_index)
         payload["MbssIndexChanged"] = "0"
@@ -462,6 +550,8 @@ class KaonRouterClient:
         timeout=25,
         interval=2,
     ):
+        """Espera hasta que la red de invitados coincida con lo esperado."""
+
         limite = time.monotonic() + timeout
         ultima_config = None
 
@@ -483,6 +573,8 @@ class KaonRouterClient:
         return ultima_config
 
     def _obtener_payload_red_invitados(self, band="2.4"):
+        """Construye el payload actual del formulario de red de invitados."""
+
         return self._obtener_payload_formulario(
             self.obtener_pagina_red_invitados(band=band),
             "wlanGuestNetwork",
@@ -490,6 +582,8 @@ class KaonRouterClient:
         )
 
     def _obtener_payload_red_primaria(self, band="2.4"):
+        """Construye el payload actual del formulario de red primaria."""
+
         return self._obtener_payload_formulario(
             self.obtener_pagina_red_primaria(band=band),
             "wlanPrimaryNetwork",
@@ -497,6 +591,8 @@ class KaonRouterClient:
         )
 
     def _obtener_payload_formulario(self, html, form_name, nombre_formulario):
+        """Extrae campos editables de un formulario HTML del router."""
+
         soup = BeautifulSoup(html, "html.parser")
         form = soup.find("form", {"name": form_name})
 
@@ -542,6 +638,8 @@ class KaonRouterClient:
         return payload
 
     def _valor_select(self, select_field):
+        """Devuelve el valor seleccionado de un campo `<select>`."""
+
         selected = select_field.find("option", selected=True)
 
         if selected is None:
@@ -550,6 +648,8 @@ class KaonRouterClient:
         return selected.get("value", "") if selected else ""
 
     def _red_invitados_fue_activada(self, expected_payload, band):
+        """Confirma si la red de invitados quedo activa con SSID y clave."""
+
         time.sleep(1)
 
         try:
@@ -564,6 +664,8 @@ class KaonRouterClient:
         )
 
     def _red_invitados_fue_desactivada(self, band):
+        """Confirma si la red de invitados quedo deshabilitada."""
+
         time.sleep(1)
 
         try:
@@ -583,6 +685,8 @@ class KaonRouterClient:
         timeout=25,
         interval=2,
     ):
+        """Espera hasta que la red primaria coincida con lo esperado."""
+
         limite = time.monotonic() + timeout
         ultima_config = None
 
@@ -610,6 +714,8 @@ class KaonRouterClient:
         return ultima_config
 
     def _config_red_primaria_fue_aplicada(self, ssid, password, oculto, habilitada, band):
+        """Verifica si el router refleja cambios enviados a red primaria."""
+
         time.sleep(1)
 
         try:
@@ -626,6 +732,8 @@ class KaonRouterClient:
         )
 
     def _config_red_primaria_coincide(self, config, habilitada, ssid, password, oculto):
+        """Compara una configuracion primaria contra valores esperados."""
+
         if habilitada is not None and config["habilitada"] != habilitada:
             return False
 
@@ -641,6 +749,8 @@ class KaonRouterClient:
         return True
 
     def _config_red_invitados_coincide(self, config, habilitada, ssid, password):
+        """Compara una configuracion de invitados contra valores esperados."""
+
         if habilitada is not None and config["habilitada"] != habilitada:
             return False
 
@@ -653,6 +763,8 @@ class KaonRouterClient:
         return True
 
     def _preparar_payload_red_primaria(self, payload, network_index):
+        """Ajusta indices y marca de confirmacion antes del POST primario."""
+
         for field_name in ("CurrentNetworks", "wlanPrimaryCurrentNetworks"):
             if field_name in payload:
                 payload[field_name] = str(network_index)
@@ -664,6 +776,8 @@ class KaonRouterClient:
         payload["commitwlanPrimaryNetwork"] = "1"
 
     def _buscar_campo(self, payload, field_names):
+        """Devuelve el primer nombre de campo presente en `payload`."""
+
         for field_name in field_names:
             if field_name in payload:
                 return field_name
@@ -671,22 +785,30 @@ class KaonRouterClient:
         return None
 
     def _obtener_valor_campo(self, payload, field_names):
+        """Obtiene el valor del primer campo disponible entre varias opciones."""
+
         field_name = self._buscar_campo(payload, field_names)
         return payload.get(field_name, "") if field_name else ""
 
     def _valor_ocultar_ssid(self, value, field_name):
+        """Interpreta el valor del campo de visibilidad como booleano `oculto`."""
+
         if field_name in ("BroadcastSSID", "SSIDBroadcast"):
             return value != "1"
 
         return value == "1"
 
     def _valor_para_ocultar_ssid(self, ocultar, field_name):
+        """Convierte el booleano `ocultar` al valor esperado por el formulario."""
+
         if field_name in ("BroadcastSSID", "SSIDBroadcast"):
             return "0" if ocultar else "1"
 
         return "1" if ocultar else "0"
 
     def _error_campo_no_encontrado(self, etiqueta, field_names):
+        """Genera un error tecnico cuando falta un campo esperado del router."""
+
         campos = ", ".join(field_names)
         raise RuntimeError(
             f"No se encontro el campo de {etiqueta} en el formulario del router. "
@@ -694,6 +816,8 @@ class KaonRouterClient:
         )
 
     def _normalizar_banda(self, band):
+        """Normaliza entradas equivalentes a `2.4` o `5` GHz."""
+
         band = str(band).strip().lower().replace("ghz", "")
 
         if band in ("2.4", "24", "2"):
@@ -705,6 +829,8 @@ class KaonRouterClient:
         raise ValueError("La banda WiFi debe ser 2.4 o 5 GHz.")
 
     def _validar_ssid(self, ssid):
+        """Valida que el SSID cumpla longitud y contenido minimo."""
+
         if not ssid or not ssid.strip():
             raise ValueError("El SSID no puede estar vacio.")
 
@@ -712,5 +838,7 @@ class KaonRouterClient:
             raise ValueError("El SSID no puede tener mas de 32 caracteres.")
 
     def _validar_password_wpa(self, password):
+        """Valida la longitud permitida para una clave WPA/WPA2."""
+
         if len(password) < 8 or len(password) > 64:
             raise ValueError("La contrasena WPA debe tener entre 8 y 64 caracteres.")

@@ -2,6 +2,9 @@
 
 Esta organizacion mantiene las pruebas de SNMP intactas en `test/` y separa el codigo principal por responsabilidad.
 
+La documentacion tecnica completa por archivo esta en
+`docs/SOURCE_DOCUMENTATION.md`.
+
 ```text
 src/
   app/                 Entrada de consola actual y futura capa de app

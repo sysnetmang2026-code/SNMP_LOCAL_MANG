@@ -1,12 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+  <!-- Documento principal del panel local servido por `src/app/web.py`. -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gestor WiFi KAON - Panel de red</title>
   <link rel="stylesheet" href="panel-red.css">
 </head>
 <body>
+  <!-- Navegacion persistente entre las vistas funcionales del panel. -->
   <aside class="sidebar" aria-label="Navegacion principal">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true">K</span>
@@ -48,7 +50,9 @@
     </div>
   </aside>
 
+  <!-- Contenedor de vistas: dashboard, dispositivos, acceso MAC, invitados y Nmap. -->
   <main class="shell">
+    <!-- Barra superior con acciones globales de la sesion local. -->
     <header class="topbar">
       <div>
         <p class="eyebrow">Administracion local</p>
@@ -60,6 +64,7 @@
       </div>
     </header>
 
+    <!-- Vista inicial con indicadores estaticos de referencia operacional. -->
     <section class="view is-visible" id="dashboard" aria-labelledby="dashboard-title">
       <div class="section-heading">
         <div>
@@ -137,6 +142,7 @@
       </div>
     </section>
 
+    <!-- Vista dinamica; `panel-red.js` llena `deviceGrid` desde `/api/devices`. -->
     <section class="view" id="devices" aria-labelledby="devices-title">
       <div class="section-heading">
         <div>
@@ -175,6 +181,7 @@
       </section>
     </section>
 
+    <!-- Vista de formulario estatico para control MAC manual. -->
     <section class="view" id="access" aria-labelledby="access-title">
       <div class="section-heading">
         <div>
@@ -213,6 +220,7 @@
       </div>
     </section>
 
+    <!-- Vista conectada a `/api/guest` para administrar la red de invitados. -->
     <section class="view" id="guest" aria-labelledby="guest-title">
       <div class="section-heading">
         <div>
@@ -259,6 +267,7 @@
       </section>
     </section>
 
+    <!-- Vista conectada a `/api/scan` para iniciar descubrimiento Nmap. -->
     <section class="view" id="scan" aria-labelledby="scan-title">
       <div class="section-heading">
         <div>
@@ -292,6 +301,7 @@
     </section>
   </main>
 
+  <!-- Modal reutilizable para confirmar acciones sensibles sobre dispositivos. -->
   <div class="modal-backdrop" id="actionModal" hidden>
     <section class="action-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <button class="modal-close" type="button" aria-label="Cerrar">x</button>
@@ -311,6 +321,7 @@
     </section>
   </div>
 
+  <!-- Controlador de interacciones y consumo de la API local. -->
   <script src="panel-red.js"></script>
 </body>
 </html>

@@ -1,3 +1,12 @@
+/*
+ * Hoja de estilos del panel web KAON.
+ *
+ * Define tokens visuales, layout responsive, componentes reutilizables,
+ * tarjetas de dispositivos, formularios y modal de confirmacion. El CSS esta
+ * organizado por zonas de interfaz para facilitar mantenimiento incremental.
+ */
+
+/* Tokens de tema usados por todos los componentes. */
 :root {
   --bg: #f4f7fb;
   --surface: #ffffff;
@@ -20,6 +29,7 @@
   --radius: 8px;
 }
 
+/* Normalizacion base para dimensionamiento y tipografia. */
 * {
   box-sizing: border-box;
 }
@@ -48,6 +58,7 @@ button {
   cursor: pointer;
 }
 
+/* Barra lateral fija en escritorio y navegacion inferior en movil. */
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -140,6 +151,7 @@ button {
   box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.18);
 }
 
+/* Contenedor principal y barra superior de acciones. */
 .shell {
   min-height: 100vh;
   margin-left: 260px;
@@ -161,6 +173,7 @@ button {
   margin-bottom: 26px;
 }
 
+/* Jerarquia tipografica comun del panel. */
 .eyebrow {
   margin: 0 0 4px;
   color: var(--accent);
@@ -197,6 +210,7 @@ h3 {
   gap: 10px;
 }
 
+/* Botones reutilizables con variantes semanticas. */
 .button {
   min-height: 40px;
   border: 1px solid transparent;
@@ -233,6 +247,7 @@ h3 {
   display: block;
 }
 
+/* Resumen operacional y paneles de contenido del dashboard. */
 .section-heading {
   margin-bottom: 16px;
 }
@@ -361,6 +376,7 @@ h3 {
   padding: 0 12px;
 }
 
+/* Campos de entrada, filtros y formularios. */
 .search,
 .select,
 .form input,
@@ -383,6 +399,7 @@ h3 {
   max-width: 180px;
 }
 
+/* Encabezado de la vista de dispositivos y filtros de busqueda. */
 .devices-intro {
   display: flex;
   align-items: center;
@@ -435,6 +452,7 @@ h3 {
   color: var(--success);
 }
 
+/* Grilla y tarjetas de dispositivos generadas dinamicamente por JavaScript. */
 .device-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(250px, 1fr));
@@ -579,6 +597,7 @@ h3 {
   font-size: 42px;
 }
 
+/* Acciones de cada dispositivo y tooltip informativo. */
 .device-actions {
   display: flex;
   justify-content: center;
@@ -682,6 +701,7 @@ h3 {
   color: var(--text-muted);
 }
 
+/* Estilos de tabla preservados para vistas o extensiones futuras. */
 .table-wrap {
   margin-top: 16px;
   overflow-x: auto;
@@ -732,6 +752,7 @@ th {
   color: var(--danger);
 }
 
+/* Formularios de configuracion y listas de MAC bloqueadas. */
 .form {
   display: grid;
   gap: 14px;
@@ -815,6 +836,7 @@ th {
   left: 5px;
 }
 
+/* Configuracion de invitados y resumen de escaneo Nmap. */
 .settings-panel {
   max-width: 920px;
 }
@@ -862,6 +884,7 @@ th {
   background: linear-gradient(90deg, var(--primary), var(--accent));
 }
 
+/* Modal de confirmacion para acciones sensibles. */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -925,6 +948,7 @@ th {
   margin-top: 24px;
 }
 
+/* Adaptacion de escritorio angosto y tablet. */
 @media (max-width: 980px) {
   .sidebar {
     position: static;
@@ -954,6 +978,7 @@ th {
   }
 }
 
+/* Adaptacion de formularios y grillas para pantallas pequenas. */
 @media (max-width: 640px) {
   .topbar,
   .section-heading,
@@ -989,5 +1014,319 @@ th {
 
   .action-button {
     width: 100%;
+  }
+}
+
+/* Navegacion inferior y tarjetas compactas para moviles. */
+@media (max-width: 720px) {
+  body {
+    padding-bottom: calc(78px + env(safe-area-inset-bottom));
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 40;
+    width: 100%;
+    display: block;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 -12px 28px rgba(15, 23, 42, 0.18);
+  }
+
+  .brand,
+  .router-card {
+    display: none;
+  }
+
+  .nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .nav-item {
+    min-height: 58px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding: 6px 3px;
+    font-size: 11px;
+    line-height: 1.12;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  .nav-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    font-size: 10px;
+  }
+
+  .shell {
+    min-height: auto;
+    padding: 18px 14px 10px;
+  }
+
+  .topbar {
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  h1 {
+    font-size: 24px;
+    line-height: 1.15;
+  }
+
+  h2 {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  h3 {
+    font-size: 16px;
+  }
+
+  .button {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+
+  .top-actions {
+    width: 100%;
+  }
+
+  .section-heading {
+    gap: 10px;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .metric {
+    min-height: 106px;
+    padding: 14px;
+  }
+
+  .metric strong {
+    margin: 7px 0 2px;
+    font-size: 23px;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  .metric-label,
+  .metric small,
+  .freshness,
+  .hint {
+    font-size: 12px;
+  }
+
+  .panel,
+  .devices-intro,
+  .empty-state {
+    padding: 14px;
+  }
+
+  .devices-intro {
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .devices-intro strong {
+    font-size: 16px;
+  }
+
+  .devices-intro p {
+    font-size: 14px;
+  }
+
+  .device-filters {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .notice {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .device-grid {
+    gap: 12px;
+  }
+
+  .device-card {
+    min-height: auto;
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    grid-template-areas:
+      "avatar title"
+      "avatar copy"
+      "avatar meta"
+      "actions actions";
+    align-items: center;
+    justify-content: stretch;
+    column-gap: 12px;
+    border-width: 1px;
+    border-radius: 12px;
+    padding: 14px;
+    text-align: left;
+  }
+
+  .device-card:hover,
+  .device-card:focus-within {
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+    transform: none;
+  }
+
+  .connection-dot {
+    top: 12px;
+    right: 12px;
+    width: 14px;
+    height: 14px;
+    box-shadow: 0 0 0 4px rgba(32, 212, 0, 0.12);
+  }
+
+  .device-avatar {
+    grid-area: avatar;
+    width: 58px;
+    height: 58px;
+    border-radius: 15px;
+    font-size: 28px;
+    box-shadow: 0 10px 18px rgba(37, 99, 235, 0.2);
+  }
+
+  .device-avatar svg {
+    width: 36px;
+    height: 36px;
+    stroke-width: 3.2;
+  }
+
+  .device-card h3 {
+    grid-area: title;
+    margin: 0 22px 2px 0;
+    font-size: 17px;
+    line-height: 1.18;
+  }
+
+  .device-card p {
+    grid-area: copy;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .device-meta {
+    grid-area: meta;
+    justify-self: start;
+    min-height: 24px;
+    margin: 8px 0 0;
+    font-size: 12px;
+  }
+
+  .device-actions {
+    grid-area: actions;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .action-button {
+    min-width: 0;
+    min-height: 42px;
+    border-width: 1px;
+    border-radius: 8px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+
+  .action-button::after {
+    display: none;
+  }
+
+  .add-device .button {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .search,
+  .select,
+  .form input,
+  .form select,
+  .rename-field input {
+    min-height: 44px;
+  }
+
+  .blocked-list li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .blocked-list span {
+    overflow-wrap: anywhere;
+  }
+
+  .blocked-list button {
+    min-height: 38px;
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .scan-banner {
+    gap: 10px;
+  }
+
+  .scan-banner div {
+    padding: 12px;
+  }
+
+  .modal-backdrop {
+    align-items: end;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .action-modal {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    border-radius: 16px;
+    padding: 22px;
+  }
+
+  .action-modal p:not(.eyebrow) {
+    font-size: 15px;
+  }
+
+  .modal-actions .button {
+    width: 100%;
+  }
+}
+
+/* Ajustes finales para telefonos muy estrechos. */
+@media (max-width: 380px) {
+  .shell {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .top-actions,
+  .metrics,
+  .device-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-item {
+    min-height: 54px;
+    font-size: 10px;
+  }
+
+  .nav-icon {
+    width: 22px;
+    height: 22px;
   }
 }

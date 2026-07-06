@@ -1,3 +1,12 @@
+/**
+ * Controlador del panel web de administracion de red.
+ *
+ * Este script coordina navegacion entre vistas, renderizado de dispositivos,
+ * consumo de la API local, configuracion de red de invitados, escaneo Nmap y
+ * acciones modales para renombrar, bloquear o desbloquear equipos.
+ */
+
+// Referencias DOM usadas por las vistas principales del panel.
 const navButtons = document.querySelectorAll("[data-view]");
 const quickLinks = document.querySelectorAll("[data-view-link]");
 const views = document.querySelectorAll(".view");
@@ -21,6 +30,7 @@ const aliasInput = document.getElementById("aliasInput");
 const modalConfirm = document.getElementById("modalConfirm");
 const closeModalButtons = document.querySelectorAll(".modal-close, .modal-cancel");
 
+// Datos de respaldo para mostrar una experiencia demo si no hay servidor Python.
 const sampleDevices = [
   {
     mac: "0A:75:2A:6C:18:8B",
@@ -51,10 +61,16 @@ const sampleDevices = [
   },
 ];
 
+// Estado de cliente mantenido en memoria durante la sesion del navegador.
 let devices = [];
 let pendingAction = null;
 let guestLoaded = false;
 
+/**
+ * Activa una vista del panel y carga datos diferidos cuando corresponde.
+ *
+ * @param {string} viewId Identificador del `<section>` a mostrar.
+ */
 function showView(viewId) {
   views.forEach((view) => {
     view.classList.toggle("is-visible", view.id === viewId);
@@ -73,6 +89,12 @@ function showView(viewId) {
   }
 }
 
+/**
+ * Escapa texto antes de insertarlo como HTML para evitar inyecciones visuales.
+ *
+ * @param {unknown} value Valor a convertir a texto seguro.
+ * @returns {string} Texto con entidades HTML escapadas.
+ */
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -82,6 +104,12 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+/**
+ * Actualiza el aviso general de la vista de dispositivos.
+ *
+ * @param {string} message Texto a mostrar; si esta vacio oculta el aviso.
+ * @param {string} type Variante visual: `info`, `warning` o `success`.
+ */
 function setNotice(message, type = "info") {
   if (!message) {
     deviceNotice.hidden = true;
@@ -94,6 +122,13 @@ function setNotice(message, type = "info") {
   deviceNotice.className = `notice ${type}`;
 }
 
+/**
+ * Actualiza un aviso asociado a una seccion especifica.
+ *
+ * @param {HTMLElement} element Contenedor de aviso.
+ * @param {string} message Texto a mostrar; si esta vacio oculta el aviso.
+ * @param {string} type Variante visual del aviso.
+ */
 function setBoxNotice(element, message, type = "info") {
   if (!message) {
     element.hidden = true;
@@ -106,6 +141,12 @@ function setBoxNotice(element, message, type = "info") {
   element.className = `notice ${type}`;
 }
 
+/**
+ * Traduce el tipo tecnico de dispositivo a una etiqueta de interfaz.
+ *
+ * @param {string} type Tipo normalizado recibido desde la API.
+ * @returns {string} Etiqueta descriptiva para la tarjeta.
+ */
 function deviceTypeLabel(type) {
   const labels = {
     phone: "Celular conectado",
@@ -119,6 +160,12 @@ function deviceTypeLabel(type) {
   return labels[type] || labels.unknown;
 }
 
+/**
+ * Devuelve el SVG usado como icono de tarjeta para un tipo de dispositivo.
+ *
+ * @param {string} type Tipo normalizado recibido desde la API.
+ * @returns {string} Marcado SVG seguro definido por la aplicacion.
+ */
 function deviceIcon(type) {
   const icons = {
     phone: `
@@ -164,6 +211,13 @@ function deviceIcon(type) {
   return icons[type] || icons.unknown;
 }
 
+/**
+ * Genera la ayuda contextual asociada a un boton de accion.
+ *
+ * @param {string} action Accion solicitada: `rename` o `block`.
+ * @param {object} device Dispositivo sobre el que se opera.
+ * @returns {string} Explicacion breve para tooltip y modal.
+ */
 function actionCopy(action, device) {
   if (action === "rename") {
     return "Este boton solo cambia el nombre que usted ve en este panel. No cambia el nombre real del equipo.";
@@ -176,6 +230,11 @@ function actionCopy(action, device) {
   return "Este boton evita que este dispositivo vuelva a conectarse al WiFi. Uselo solo si no lo reconoce.";
 }
 
+/**
+ * Filtra la lista local por texto de busqueda y tipo de dispositivo.
+ *
+ * @returns {Array<object>} Dispositivos visibles con los filtros actuales.
+ */
 function filteredDevices() {
   const query = deviceSearch.value.trim().toLowerCase();
   const type = deviceTypeFilter.value;
@@ -187,6 +246,9 @@ function filteredDevices() {
   });
 }
 
+/**
+ * Renderiza las tarjetas de dispositivos dentro de `deviceGrid`.
+ */
 function renderDevices() {
   const visibleDevices = filteredDevices();
 
@@ -239,6 +301,13 @@ function renderDevices() {
   deviceGrid.innerHTML = cards.join("");
 }
 
+/**
+ * Ejecuta una solicitud JSON contra la API local y normaliza errores.
+ *
+ * @param {string} url Ruta HTTP a consultar.
+ * @param {RequestInit} options Opciones de `fetch`.
+ * @returns {Promise<object>} Cuerpo JSON validado.
+ */
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, {
     headers: {
@@ -256,6 +325,9 @@ async function apiRequest(url, options = {}) {
   return data;
 }
 
+/**
+ * Carga dispositivos desde el router o desde el respaldo SQLite.
+ */
 async function loadDevices() {
   deviceGrid.innerHTML = `
     <article class="device-card skeleton">
@@ -283,6 +355,9 @@ async function loadDevices() {
   }
 }
 
+/**
+ * Lee el estado actual de la red de invitados 2.4 GHz.
+ */
 async function loadGuestConfig() {
   setBoxNotice(guestNotice, "Leyendo configuracion de la red de invitados...");
 
@@ -298,6 +373,9 @@ async function loadGuestConfig() {
   }
 }
 
+/**
+ * Envia al servidor la configuracion visible de la red de invitados.
+ */
 async function updateGuestConfig() {
   saveGuest.disabled = true;
   saveGuest.textContent = "Guardando...";
@@ -324,6 +402,9 @@ async function updateGuestConfig() {
   }
 }
 
+/**
+ * Solicita un escaneo Nmap de la subred local y actualiza la vista.
+ */
 async function runScan() {
   startScan.disabled = true;
   startScan.textContent = "Escaneando...";
@@ -343,10 +424,21 @@ async function runScan() {
   }
 }
 
+/**
+ * Busca en memoria un dispositivo por direccion MAC.
+ *
+ * @param {string} mac Direccion MAC normalizada.
+ * @returns {object|undefined} Dispositivo coincidente.
+ */
 function getDeviceByMac(mac) {
   return devices.find((device) => device.mac === mac);
 }
 
+/**
+ * Abre el modal de confirmacion para renombrar, bloquear o desbloquear.
+ *
+ * @param {HTMLElement} button Boton que contiene `data-action` y `data-mac`.
+ */
 function openActionModal(button) {
   const mac = button.dataset.mac;
   const action = button.dataset.action;
@@ -378,11 +470,17 @@ function openActionModal(button) {
   (action === "rename" ? aliasInput : modalConfirm).focus();
 }
 
+/**
+ * Cierra el modal de accion y limpia la operacion pendiente.
+ */
 function closeActionModal() {
   modal.hidden = true;
   pendingAction = null;
 }
 
+/**
+ * Ejecuta la accion pendiente del modal contra la API local.
+ */
 async function confirmAction() {
   if (!pendingAction) {
     return;
@@ -425,6 +523,7 @@ async function confirmAction() {
   }
 }
 
+// Enlaces de navegacion lateral y accesos rapidos entre vistas.
 navButtons.forEach((button) => {
   button.addEventListener("click", () => showView(button.dataset.view));
 });
@@ -433,6 +532,7 @@ quickLinks.forEach((button) => {
   button.addEventListener("click", () => showView(button.dataset.viewLink));
 });
 
+// Delegacion global de clics para botones creados dinamicamente.
 document.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-action]");
 
@@ -448,6 +548,7 @@ document.addEventListener("click", (event) => {
   }
 });
 
+// Eventos directos de formularios y botones persistentes.
 deviceSearch.addEventListener("input", renderDevices);
 deviceTypeFilter.addEventListener("change", renderDevices);
 refreshDevices.addEventListener("click", loadDevices);
@@ -458,6 +559,7 @@ document.getElementById("scanNow").addEventListener("click", () => {
   showView("scan");
 });
 
+// Cierre de modal por botones, clic fuera del cuadro y tecla Escape.
 closeModalButtons.forEach((button) => {
   button.addEventListener("click", closeActionModal);
 });
