@@ -14,7 +14,12 @@ from bs4 import BeautifulSoup
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import Timeout
 
-from validators import is_valid_mac, normalize_mac
+from validators import (
+    is_valid_mac,
+    is_valid_url_keyword,
+    normalize_mac,
+    normalize_url_keyword,
+)
 
 
 WIRELESS_MAC_FIELDS = [f"WirelessMac{number:02d}" for number in range(1, 21)]
@@ -59,6 +64,18 @@ PRIMARY_ENABLE_FIELDS = (
     "PrimaryNetworkEnable",
     "PrimaryNetworkEnabled",
 )
+
+PARENTAL_CONTROL_PROTOCOLS = {
+    "TCP": "4",
+    "UDP": "3",
+    "BOTH": "254",
+    "AMBOS": "254",
+}
+PARENTAL_CONTROL_PROTOCOL_LABELS = {
+    "4": "TCP",
+    "3": "UDP",
+    "254": "BOTH",
+}
 
 
 class KaonRouterClient:
@@ -137,6 +154,18 @@ class KaonRouterClient:
 
         return f"{self.router_url}/goform/wlanPrimaryNetwork"
 
+    @property
+    def parental_control_url(self):
+        """URL de lectura de reglas de control parental."""
+
+        return f"{self.router_url}/RgFiltering.asp"
+
+    @property
+    def parental_control_form_url(self):
+        """URL del formulario que aplica reglas de control parental."""
+
+        return f"{self.router_url}/goform/RgFiltering"
+
     def obtener_pagina_acceso(self):
         """Obtiene el HTML de la pantalla de control de acceso MAC."""
 
@@ -153,6 +182,11 @@ class KaonRouterClient:
 
         self.seleccionar_banda_wifi(band)
         return self._get_autenticado(self.primary_network_url)
+
+    def obtener_pagina_control_parental(self):
+        """Obtiene el HTML de la pantalla `ParentalControl`."""
+
+        return self._get_autenticado(self.parental_control_url)
 
     def seleccionar_banda_wifi(self, band):
         """Solicita al router cambiar la banda activa del panel web."""
@@ -320,6 +354,329 @@ class KaonRouterClient:
             return False
 
         return set(current_macs) == set(expected_macs)
+
+    def obtener_reglas_control_parental(self):
+        """Extrae las reglas visibles en la tabla `ParentalControl`."""
+
+        soup = BeautifulSoup(self.obtener_pagina_control_parental(), "html.parser")
+        table = soup.find("table", {"class": "ListTypeA"})
+
+        if not table:
+            return []
+
+        rules = []
+
+        for index, row in enumerate(table.find_all("tr")[1:]):
+            columns = row.find_all("td")
+
+            if len(columns) < 10:
+                continue
+
+            rules.append({
+                "indice": index,
+                "descripcion": columns[0].get_text(strip=True),
+                "mac": self._normalizar_mac_control_parental(columns[1].get_text(strip=True)),
+                "url": normalize_url_keyword(columns[2].get_text(strip=True)),
+                "dias": columns[3].get_text(strip=True),
+                "hora_inicio": columns[4].get_text(strip=True),
+                "hora_fin": columns[5].get_text(strip=True),
+                "puerto_inicio": columns[6].get_text(strip=True),
+                "puerto_fin": columns[7].get_text(strip=True),
+                "protocolo": self._normalizar_protocolo_control_parental(
+                    columns[8].get_text(strip=True)
+                ),
+                "accion": columns[9].get_text(strip=True),
+            })
+
+        return rules
+
+    def crear_regla_control_parental(
+        self,
+        descripcion,
+        url_keyword,
+        mac=None,
+        protocol="BOTH",
+        deny=True,
+    ):
+        """Crea una regla de control parental para bloquear o permitir un dominio."""
+
+        keyword = normalize_url_keyword(url_keyword)
+
+        if not is_valid_url_keyword(keyword):
+            raise ValueError("El dominio o palabra clave URL no es valida.")
+
+        mac = self._normalizar_mac_control_parental(mac or "")
+
+        if mac and not is_valid_mac(mac):
+            raise ValueError("La direccion MAC no es valida.")
+
+        protocol_value = self._valor_protocolo_control_parental(protocol)
+        payload = self._obtener_payload_nueva_regla_control_parental()
+        payload.update({
+            "FilteringCreateRemove": "0",
+            "FilteringDescription": self._descripcion_control_parental(descripcion, keyword),
+            "FilteringMacAddress": mac,
+            "FilteringUrlKeyword": keyword,
+            "FilteringPortStart": "0",
+            "FilteringPortEnd": "0",
+            "FilteringProtocol": protocol_value,
+            "FilteringEveryDay": "128",
+            "FilteringAllDay": "1",
+            "FilteringHourStart": "12",
+            "FilteringMinuteStart": "00",
+            "FilteringStartAmPm": "0",
+            "FilteringHourEnd": "12",
+            "FilteringMinuteEnd": "00",
+            "FilteringEndAmPm": "0",
+            "FilteringAllowBlock": "0" if deny else "1",
+            "FilteringEnabled": "1",
+            "FilteringApply": "2",
+            "FilteringTable": "0",
+        })
+
+        try:
+            response = self._post_autenticado(self.parental_control_form_url, payload)
+        except requests.RequestException as error:
+            self._reiniciar_sesion()
+
+            if self._regla_control_parental_existe(keyword, mac, protocol, deny):
+                return True
+
+            if isinstance(error, (Timeout, requests.ConnectionError)):
+                return True
+
+            raise
+
+        if response.status_code not in (200, 302):
+            raise RuntimeError(f"El router rechazo el cambio: HTTP {response.status_code}")
+
+        return True
+
+    def bloquear_dominios_control_parental(self, dominios, mac=None, descripcion="Bloqueo web"):
+        """Crea reglas `Denegar` para varios dominios usando protocolo BOTH."""
+
+        keywords = []
+
+        for dominio in dominios:
+            keyword = normalize_url_keyword(dominio)
+
+            if not is_valid_url_keyword(keyword):
+                raise ValueError(f"Dominio no valido para control parental: {dominio}")
+
+            if keyword not in keywords:
+                keywords.append(keyword)
+
+        mac = self._normalizar_mac_control_parental(mac or "")
+
+        if mac and not is_valid_mac(mac):
+            raise ValueError("La direccion MAC no es valida.")
+
+        existentes = self.obtener_reglas_control_parental()
+        resultado = {"creadas": [], "omitidas": []}
+
+        for keyword in keywords:
+            if self._regla_control_parental_en_lista(existentes, keyword, mac, "BOTH", True):
+                resultado["omitidas"].append(keyword)
+                continue
+
+            self.crear_regla_control_parental(
+                descripcion=descripcion,
+                url_keyword=keyword,
+                mac=mac,
+                protocol="BOTH",
+                deny=True,
+            )
+            resultado["creadas"].append(keyword)
+            existentes.append({
+                "mac": mac,
+                "url": keyword,
+                "protocolo": "BOTH",
+                "accion": "Denegar",
+            })
+
+        return resultado
+
+    def eliminar_regla_control_parental(self, indice):
+        """Elimina una regla de control parental por indice visible en la tabla."""
+
+        payload = {
+            "FilteringCreateRemove": "3",
+            "FilteringTable": str(indice),
+        }
+
+        try:
+            response = self._post_autenticado(self.parental_control_form_url, payload)
+        except requests.RequestException as error:
+            self._reiniciar_sesion()
+
+            if isinstance(error, (Timeout, requests.ConnectionError)):
+                return True
+
+            raise
+
+        if response.status_code not in (200, 302):
+            raise RuntimeError(f"El router rechazo el cambio: HTTP {response.status_code}")
+
+        return True
+
+    def desbloquear_dominios_control_parental(self, dominios, mac=None):
+        """Elimina reglas `Denegar` que coincidan con dominios y MAC indicada."""
+
+        keywords = []
+
+        for dominio in dominios:
+            keyword = normalize_url_keyword(dominio)
+
+            if not is_valid_url_keyword(keyword):
+                raise ValueError(f"Dominio no valido para control parental: {dominio}")
+
+            if keyword not in keywords:
+                keywords.append(keyword)
+
+        mac = self._normalizar_mac_control_parental(mac or "")
+
+        if mac and not is_valid_mac(mac):
+            raise ValueError("La direccion MAC no es valida.")
+
+        reglas = self.obtener_reglas_control_parental()
+        reglas_objetivo = [
+            regla
+            for regla in reglas
+            if self._regla_control_parental_debe_eliminarse(regla, keywords, mac)
+        ]
+
+        for regla in sorted(reglas_objetivo, key=lambda item: item["indice"], reverse=True):
+            self.eliminar_regla_control_parental(regla["indice"])
+
+        eliminadas = [regla["url"] for regla in reglas_objetivo]
+        no_encontradas = [keyword for keyword in keywords if keyword not in eliminadas]
+
+        return {
+            "eliminadas": eliminadas,
+            "no_encontradas": no_encontradas,
+        }
+
+    def _obtener_payload_nueva_regla_control_parental(self):
+        """Abre el formulario de creacion y devuelve sus campos actuales."""
+
+        response = self.session.post(
+            self.parental_control_form_url,
+            data={"FilteringCreateRemove": "1", "FilteringTable": "0"},
+            timeout=self.timeout,
+            allow_redirects=True,
+        )
+
+        if response.status_code == 401:
+            self._reiniciar_sesion()
+            response = self.session.post(
+                self.parental_control_form_url,
+                data={"FilteringCreateRemove": "1", "FilteringTable": "0"},
+                timeout=self.timeout,
+                allow_redirects=True,
+            )
+
+        response.raise_for_status()
+        payload = self._obtener_payload_formulario(
+            response.text,
+            "RgFiltering",
+            "control parental",
+        )
+
+        if "FilteringUrlKeyword" not in payload:
+            raise RuntimeError("No se pudo abrir el formulario de control parental.")
+
+        return payload
+
+    def _regla_control_parental_existe(self, keyword, mac, protocol, deny):
+        """Verifica contra el router si una regla ya esta creada."""
+
+        time.sleep(1)
+
+        try:
+            rules = self.obtener_reglas_control_parental()
+        except (requests.RequestException, RuntimeError):
+            return False
+
+        return self._regla_control_parental_en_lista(rules, keyword, mac, protocol, deny)
+
+    def _regla_control_parental_en_lista(self, rules, keyword, mac, protocol, deny):
+        """Busca una regla equivalente en una lista ya leida."""
+
+        keyword = normalize_url_keyword(keyword)
+        mac = self._normalizar_mac_control_parental(mac or "")
+        protocol = self._normalizar_protocolo_control_parental(protocol)
+
+        for rule in rules:
+            rule_action = rule.get("accion", "").strip().lower()
+            rule_denies = rule_action.startswith("deneg") or rule_action.startswith("deny")
+            rule_protocol = self._normalizar_protocolo_control_parental(
+                rule.get("protocolo", "")
+            )
+
+            if (
+                rule.get("url") == keyword
+                and self._normalizar_mac_control_parental(rule.get("mac", "")) == mac
+                and rule_protocol == protocol
+                and rule_denies == deny
+            ):
+                return True
+
+        return False
+
+    def _regla_control_parental_debe_eliminarse(self, regla, keywords, mac):
+        """Indica si una regla coincide con la solicitud de desbloqueo."""
+
+        rule_action = regla.get("accion", "").strip().lower()
+        rule_denies = rule_action.startswith("deneg") or rule_action.startswith("deny")
+
+        return (
+            rule_denies
+            and regla.get("url") in keywords
+            and self._normalizar_mac_control_parental(regla.get("mac", "")) == mac
+        )
+
+    def _normalizar_mac_control_parental(self, mac):
+        """Normaliza la MAC de una regla; vacia o cero significa regla global."""
+
+        mac = (mac or "").strip()
+
+        if not mac or mac == "00:00:00:00:00:00":
+            return ""
+
+        return normalize_mac(mac)
+
+    def _valor_protocolo_control_parental(self, protocol):
+        """Convierte una etiqueta de protocolo al valor interno del KAON."""
+
+        protocol = self._normalizar_protocolo_control_parental(protocol)
+
+        if protocol not in PARENTAL_CONTROL_PROTOCOLS:
+            raise ValueError("El protocolo debe ser TCP, UDP o BOTH.")
+
+        return PARENTAL_CONTROL_PROTOCOLS[protocol]
+
+    def _normalizar_protocolo_control_parental(self, protocol):
+        """Normaliza protocolo desde valor interno, texto ingles o texto espanol."""
+
+        protocol = str(protocol or "").strip().upper()
+
+        if protocol in PARENTAL_CONTROL_PROTOCOL_LABELS:
+            return PARENTAL_CONTROL_PROTOCOL_LABELS[protocol]
+
+        if protocol in ("AMBOS", "BOTH"):
+            return "BOTH"
+
+        if protocol in ("TCP", "UDP"):
+            return protocol
+
+        return protocol
+
+    def _descripcion_control_parental(self, descripcion, keyword):
+        """Ajusta la descripcion para evitar entradas vacias o demasiado largas."""
+
+        descripcion = (descripcion or "").strip() or "Bloqueo web"
+        texto = f"{descripcion} {keyword}".strip()
+        return texto[:48]
 
     def obtener_config_red_invitados(self, band="2.4"):
         """Devuelve estado, SSID y clave WPA de la red de invitados."""

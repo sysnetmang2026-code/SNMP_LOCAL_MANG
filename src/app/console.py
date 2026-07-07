@@ -15,7 +15,63 @@ from config import DATABASE_PATH, ROUTER_PASS, ROUTER_URL, ROUTER_USER
 from network.adapters import get_subnet
 from network.nmap_scanner import EscanerRedDB
 from routers.kaon_client import KaonRouterClient
-from validators import normalize_mac
+from validators import is_valid_mac, normalize_mac, normalize_url_keyword
+
+
+PARENTAL_CONTROL_PROFILES = {
+    "1": {
+        "nombre": "Facebook / Messenger",
+        "descripcion": "Bloqueo Facebook",
+        "dominios": (
+            "facebook.com",
+            "www.facebook.com",
+            "m.facebook.com",
+            "mbasic.facebook.com",
+            "graph.facebook.com",
+            "connect.facebook.net",
+            "facebook.net",
+            "fb.com",
+            "fbcdn.net",
+            "fbsbx.com",
+            "messenger.com",
+        ),
+    },
+    "2": {
+        "nombre": "YouTube",
+        "descripcion": "Bloqueo YouTube",
+        "dominios": (
+            "youtube.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "youtu.be",
+            "googlevideo.com",
+            "ytimg.com",
+            "youtubei.googleapis.com",
+            "youtube.googleapis.com",
+            "youtube-nocookie.com",
+        ),
+    },
+    "3": {
+        "nombre": "Free Fire",
+        "descripcion": "Bloqueo FreeFire",
+        "dominios": (
+            "freefiremobile.com",
+            "ff.garena.com",
+            "garena.com",
+            "garenanow.com",
+            "garenanow.com.br",
+        ),
+    },
+    "4": {
+        "nombre": "Clash Royale / Supercell",
+        "descripcion": "Bloqueo Supercell",
+        "dominios": (
+            "clashroyale.com",
+            "supercell.com",
+            "supercellgames.com",
+        ),
+    },
+}
 
 
 def crear_cliente_router():
@@ -80,6 +136,182 @@ def listar_macs_bloqueadas():
     print("MAC bloqueadas:")
     for mac in macs:
         print(f"- {mac}")
+
+
+def listar_reglas_control_parental():
+    """Imprime las reglas actuales de `ParentalControl` del router."""
+
+    router = crear_cliente_router()
+    reglas = router.obtener_reglas_control_parental()
+
+    if not reglas:
+        print("No hay reglas de control parental.")
+        return
+
+    print("=" * 122)
+    print(
+        f"| {'#':<3}"
+        f"| {'DESCRIPCION':<22}"
+        f"| {'MAC':<18}"
+        f"| {'DOMINIO':<32}"
+        f"| {'PROTOCOLO':<9}"
+        f"| {'ACCION':<10}|"
+    )
+    print("=" * 122)
+
+    for regla in reglas:
+        mac = regla["mac"] or "TODAS"
+        print(
+            f"| {regla['indice']:<3}"
+            f"| {regla['descripcion'][:22]:<22}"
+            f"| {mac:<18}"
+            f"| {regla['url'][:32]:<32}"
+            f"| {regla['protocolo']:<9}"
+            f"| {regla['accion']:<10}|"
+        )
+
+    print("=" * 122)
+
+
+def pedir_mac_opcional(pregunta="MAC del dispositivo (Enter para aplicar a todos): "):
+    """Solicita una MAC opcional para reglas de control parental."""
+
+    while True:
+        mac = input(pregunta).strip()
+
+        if not mac:
+            return None
+
+        mac = normalize_mac(mac)
+
+        if is_valid_mac(mac):
+            return mac
+
+        print("La MAC no es valida. Use el formato AA:BB:CC:DD:EE:FF.")
+
+
+def seleccionar_perfil_control_parental():
+    """Permite elegir un perfil predefinido o dominios personalizados."""
+
+    print("\nPerfiles disponibles:")
+
+    for key, profile in PARENTAL_CONTROL_PROFILES.items():
+        print(f"{key}. {profile['nombre']}")
+
+    print("5. Dominios personalizados")
+    print("0. Cancelar")
+
+    choice = input("Seleccione una opcion: ").strip()
+
+    if choice == "0":
+        return None
+
+    if choice in PARENTAL_CONTROL_PROFILES:
+        return PARENTAL_CONTROL_PROFILES[choice]
+
+    if choice == "5":
+        raw_domains = pedir_texto_no_vacio(
+            "Dominios separados por coma (ej: facebook.com,fbcdn.net): "
+        )
+        dominios = [
+            normalize_url_keyword(domain)
+            for domain in raw_domains.replace(";", ",").split(",")
+            if domain.strip()
+        ]
+
+        return {
+            "nombre": "Personalizado",
+            "descripcion": "Bloqueo web",
+            "dominios": tuple(dominios),
+        }
+
+    print("Opcion no valida.")
+    return None
+
+
+def bloquear_control_parental():
+    """Crea reglas de control parental para un perfil o dominios indicados."""
+
+    profile = seleccionar_perfil_control_parental()
+
+    if profile is None:
+        print("Operacion cancelada.")
+        return
+
+    mac = pedir_mac_opcional()
+    alcance = f"solo para {mac}" if mac else "para todos los dispositivos"
+
+    print(f"\nPerfil: {profile['nombre']}")
+    print(f"Alcance: {alcance}")
+    print("Protocolo: BOTH (TCP y UDP)")
+
+    if not preguntar_si_no("Desea crear estas reglas de control parental?"):
+        print("Operacion cancelada.")
+        return
+
+    router = crear_cliente_router()
+    resultado = router.bloquear_dominios_control_parental(
+        profile["dominios"],
+        mac=mac,
+        descripcion=profile["descripcion"],
+    )
+
+    print("\nControl parental actualizado.")
+
+    if resultado["creadas"]:
+        print("Reglas creadas:")
+        for dominio in resultado["creadas"]:
+            print(f"- {dominio}")
+
+    if resultado["omitidas"]:
+        print("Reglas ya existentes:")
+        for dominio in resultado["omitidas"]:
+            print(f"- {dominio}")
+
+    if mac:
+        print("\nNota para celulares:")
+        print("Verifique que el telefono no use MAC aleatoria/privada en esta red WiFi.")
+        print("Luego desconecte y reconecte el WiFi para que el router aplique las reglas.")
+
+
+def desbloquear_control_parental():
+    """Elimina reglas de control parental para un perfil o dominios indicados."""
+
+    profile = seleccionar_perfil_control_parental()
+
+    if profile is None:
+        print("Operacion cancelada.")
+        return
+
+    mac = pedir_mac_opcional(
+        "MAC del dispositivo (Enter para reglas globales sin MAC): "
+    )
+    alcance = f"solo para {mac}" if mac else "reglas globales sin MAC"
+
+    print(f"\nPerfil: {profile['nombre']}")
+    print(f"Alcance a desbloquear: {alcance}")
+
+    if not preguntar_si_no("Desea eliminar estas reglas de control parental?"):
+        print("Operacion cancelada.")
+        return
+
+    router = crear_cliente_router()
+    resultado = router.desbloquear_dominios_control_parental(
+        profile["dominios"],
+        mac=mac,
+    )
+
+    print("\nControl parental actualizado.")
+
+    if resultado["eliminadas"]:
+        print("Reglas eliminadas:")
+        for dominio in resultado["eliminadas"]:
+            print(f"- {dominio}")
+
+    if resultado["no_encontradas"]:
+        print("Reglas no encontradas para ese alcance:")
+        for dominio in resultado["no_encontradas"]:
+            print(f"- {dominio}")
 
 
 def bloquear_mac():
@@ -533,6 +765,9 @@ def main():
         print("5. Configurar la red 2.4 GHz")
         print("6. Configurar la red 5 GHz")
         print("7. Escanear red con Nmap")
+        print("8. Control parental: ver reglas")
+        print("9. Control parental: bloquear sitios o juegos")
+        print("10. Control parental: desbloquear sitios o juegos")
         print("0. Salir")
 
         choice = input("Seleccione una opcion: ").strip()
@@ -552,6 +787,12 @@ def main():
                 configurar_banda_wifi("5", "5 GHz")
             elif choice == "7":
                 escanear_con_nmap()
+            elif choice == "8":
+                listar_reglas_control_parental()
+            elif choice == "9":
+                bloquear_control_parental()
+            elif choice == "10":
+                desbloquear_control_parental()
             elif choice == "0":
                 break
             else:

@@ -16,7 +16,8 @@ al cliente KAON (`src/routers/kaon_client.py`), al escaner Nmap
 El panel web se sirve desde `src/app/web.py`. Ese servidor entrega los archivos
 de `view/` y expone rutas JSON bajo `/api/` para que `view/panel-red.js` pueda
 listar dispositivos, guardar alias, bloquear o desbloquear MAC, administrar la
-red de invitados y ejecutar escaneos.
+red de invitados y ejecutar escaneos. La consola tambien permite probar reglas
+de control parental KAON antes de llevarlas al panel web.
 
 ## Dependencias principales
 
@@ -82,9 +83,11 @@ o sobrescribir valores durante pruebas.
 
 ### `src/validators.py`
 
-Define la expresion regular oficial para direcciones MAC y dos funciones
+Define la expresion regular oficial para direcciones MAC y funciones
 compartidas: `normalize_mac`, que elimina espacios laterales y convierte a
-mayusculas, e `is_valid_mac`, que valida el formato `AA:BB:CC:DD:EE:FF`.
+mayusculas, `is_valid_mac`, que valida el formato `AA:BB:CC:DD:EE:FF`,
+`normalize_url_keyword`, que convierte una URL en dominio/palabra clave para el
+router, e `is_valid_url_keyword`, que valida entradas de control parental.
 
 ### `src/main.py`
 
@@ -98,14 +101,14 @@ Punto de entrada del panel web. Importa y ejecuta `app.web.main`.
 
 Marca `src/app` como paquete y documenta que ahi reside la capa de aplicacion:
 consola, servidor web y persistencia auxiliar.
-
 ### `src/app/console.py`
 
 Implementa el menu interactivo de consola para administracion KAON. Sus
 funciones cubren listado de clientes, consulta de MAC bloqueadas, bloqueo y
 desbloqueo, configuracion de SSID y clave WPA, visibilidad de SSID, activacion
-o desactivacion de red primaria e invitados, y escaneo Nmap. El modulo usa
-confirmaciones explicitas antes de cambios sensibles.
+o desactivacion de red primaria e invitados, creacion y eliminacion de reglas de
+control parental por dominio, y escaneo Nmap. El modulo usa confirmaciones
+explicitas antes de cambios sensibles.
 
 ### `src/app/device_store.py`
 
@@ -146,7 +149,9 @@ Marca `src/routers` como paquete para clientes de routers.
 Cliente principal para routers KAON. Mantiene una sesion HTTP con autenticacion
 basica, lee paginas HTML, extrae formularios, aplica cambios por endpoints
 `goform` y confirma estado despues de timeouts. Soporta clientes conectados,
-MAC bloqueadas, red de invitados y red primaria en bandas 2.4 GHz y 5 GHz.
+MAC bloqueadas, red de invitados, red primaria en bandas 2.4 GHz y 5 GHz, y
+reglas de control parental desde `/RgFiltering.asp`, incluyendo alta y baja por
+indice de tabla.
 
 ### `src/routers/openwrt_ssh_access_control.py`
 
@@ -208,6 +213,12 @@ KAON.
 Muestra HTML de la pantalla real del router KAON. Sirve como referencia para
 validar nombres de campos, tabla de clientes y payloads usados por
 `KaonRouterClient`.
+
+### `docs/CONTROL_PARENTAL.md`
+
+Documenta los campos descubiertos en `/RgFiltering.asp`, el flujo de creacion
+por `/goform/RgFiltering`, el uso desde consola y notas para diagnosticar
+bloqueos que no aplican en celulares.
 
 ## Artefactos no fuente
 

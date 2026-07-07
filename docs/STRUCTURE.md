@@ -5,6 +5,9 @@ Esta organizacion mantiene las pruebas de SNMP intactas en `test/` y separa el c
 La documentacion tecnica completa por archivo esta en
 `docs/SOURCE_DOCUMENTATION.md`.
 
+La integracion de control parental del router KAON esta documentada en
+`docs/CONTROL_PARENTAL.md`.
+
 ```text
 src/
   app/                 Entrada de consola actual y futura capa de app
@@ -32,6 +35,10 @@ El bloqueo por MAC usa:
 - `commitwlanAccess=1` para confirmar el formulario.
 
 La muestra del formulario original esta en `docs/router_samples/kaon_wlanAccess.asp`.
+
+El control parental usa `/RgFiltering.asp` y `/goform/RgFiltering` para crear o
+quitar reglas por dominio con MAC opcional. Las reglas nuevas del menu se envian
+con `FilteringProtocol=254` para bloquear TCP y UDP.
 
 ## Pruebas actuales
 
