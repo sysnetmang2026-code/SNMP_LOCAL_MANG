@@ -107,8 +107,8 @@ Implementa el menu interactivo de consola para administracion KAON. Sus
 funciones cubren listado de clientes, consulta de MAC bloqueadas, bloqueo y
 desbloqueo, configuracion de SSID y clave WPA, visibilidad de SSID, activacion
 o desactivacion de red primaria e invitados, creacion y eliminacion de reglas de
-control parental por dominio, y escaneo Nmap. El modulo usa confirmaciones
-explicitas antes de cambios sensibles.
+control parental por dominio, refuerzo anti-evasion por puerto, y escaneo Nmap.
+El modulo usa confirmaciones explicitas antes de cambios sensibles.
 
 ### `src/app/device_store.py`
 
@@ -151,7 +151,7 @@ basica, lee paginas HTML, extrae formularios, aplica cambios por endpoints
 `goform` y confirma estado despues de timeouts. Soporta clientes conectados,
 MAC bloqueadas, red de invitados, red primaria en bandas 2.4 GHz y 5 GHz, y
 reglas de control parental desde `/RgFiltering.asp`, incluyendo alta y baja por
-indice de tabla.
+indice de tabla, reglas por dominio y reglas por puerto.
 
 ### `src/routers/openwrt_ssh_access_control.py`
 
@@ -217,8 +217,8 @@ validar nombres de campos, tabla de clientes y payloads usados por
 ### `docs/CONTROL_PARENTAL.md`
 
 Documenta los campos descubiertos en `/RgFiltering.asp`, el flujo de creacion
-por `/goform/RgFiltering`, el uso desde consola y notas para diagnosticar
-bloqueos que no aplican en celulares.
+por `/goform/RgFiltering`, el uso desde consola, fuentes investigadas y notas
+para diagnosticar bloqueos que no aplican en celulares.
 
 ## Artefactos no fuente
 

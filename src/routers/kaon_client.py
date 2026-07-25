@@ -393,17 +393,27 @@ class KaonRouterClient:
     def crear_regla_control_parental(
         self,
         descripcion,
-        url_keyword,
+        url_keyword="",
         mac=None,
         protocol="BOTH",
         deny=True,
+        port_start=0,
+        port_end=0,
     ):
         """Crea una regla de control parental para bloquear o permitir un dominio."""
 
-        keyword = normalize_url_keyword(url_keyword)
+        keyword = normalize_url_keyword(url_keyword) if url_keyword else ""
+        port_start = self._normalizar_puerto_control_parental(port_start)
+        port_end = self._normalizar_puerto_control_parental(port_end)
 
-        if not is_valid_url_keyword(keyword):
+        if keyword and not is_valid_url_keyword(keyword):
             raise ValueError("El dominio o palabra clave URL no es valida.")
+
+        if not keyword and port_start == "0" and port_end == "0":
+            raise ValueError("La regla necesita dominio o puerto especifico.")
+
+        if port_start != "0" and port_end != "0" and int(port_start) > int(port_end):
+            raise ValueError("El puerto inicial no puede ser mayor al puerto final.")
 
         mac = self._normalizar_mac_control_parental(mac or "")
 
@@ -417,8 +427,8 @@ class KaonRouterClient:
             "FilteringDescription": self._descripcion_control_parental(descripcion, keyword),
             "FilteringMacAddress": mac,
             "FilteringUrlKeyword": keyword,
-            "FilteringPortStart": "0",
-            "FilteringPortEnd": "0",
+            "FilteringPortStart": port_start,
+            "FilteringPortEnd": port_end,
             "FilteringProtocol": protocol_value,
             "FilteringEveryDay": "128",
             "FilteringAllDay": "1",
@@ -439,7 +449,14 @@ class KaonRouterClient:
         except requests.RequestException as error:
             self._reiniciar_sesion()
 
-            if self._regla_control_parental_existe(keyword, mac, protocol, deny):
+            if self._regla_control_parental_existe(
+                keyword,
+                mac,
+                protocol,
+                deny,
+                port_start,
+                port_end,
+            ):
                 return True
 
             if isinstance(error, (Timeout, requests.ConnectionError)):
@@ -491,6 +508,64 @@ class KaonRouterClient:
                 "mac": mac,
                 "url": keyword,
                 "protocolo": "BOTH",
+                "accion": "Denegar",
+            })
+
+        return resultado
+
+    def bloquear_reglas_control_parental(self, reglas, mac=None):
+        """Crea reglas avanzadas de control parental por dominio o puerto."""
+
+        mac = self._normalizar_mac_control_parental(mac or "")
+
+        if mac and not is_valid_mac(mac):
+            raise ValueError("La direccion MAC no es valida.")
+
+        existentes = self.obtener_reglas_control_parental()
+        resultado = {"creadas": [], "omitidas": []}
+
+        for regla in reglas:
+            keyword = normalize_url_keyword(regla.get("url", "")) if regla.get("url") else ""
+            port_start = self._normalizar_puerto_control_parental(
+                regla.get("puerto_inicio", 0)
+            )
+            port_end = self._normalizar_puerto_control_parental(regla.get("puerto_fin", 0))
+            protocol = regla.get("protocolo", "BOTH")
+            etiqueta = self._etiqueta_regla_control_parental(
+                keyword,
+                port_start,
+                port_end,
+                protocol,
+            )
+
+            if self._regla_control_parental_en_lista(
+                existentes,
+                keyword,
+                mac,
+                protocol,
+                True,
+                port_start,
+                port_end,
+            ):
+                resultado["omitidas"].append(etiqueta)
+                continue
+
+            self.crear_regla_control_parental(
+                descripcion=regla.get("descripcion", "Bloqueo web"),
+                url_keyword=keyword,
+                mac=mac,
+                protocol=protocol,
+                deny=True,
+                port_start=port_start,
+                port_end=port_end,
+            )
+            resultado["creadas"].append(etiqueta)
+            existentes.append({
+                "mac": mac,
+                "url": keyword,
+                "puerto_inicio": port_start,
+                "puerto_fin": port_end,
+                "protocolo": self._normalizar_protocolo_control_parental(protocol),
                 "accion": "Denegar",
             })
 
@@ -556,6 +631,60 @@ class KaonRouterClient:
             "no_encontradas": no_encontradas,
         }
 
+    def desbloquear_reglas_control_parental(self, reglas, mac=None):
+        """Elimina reglas avanzadas que coincidan con dominio, puerto, protocolo y MAC."""
+
+        mac = self._normalizar_mac_control_parental(mac or "")
+
+        if mac and not is_valid_mac(mac):
+            raise ValueError("La direccion MAC no es valida.")
+
+        objetivos = [
+            self._normalizar_especificacion_control_parental(regla)
+            for regla in reglas
+        ]
+        reglas_actuales = self.obtener_reglas_control_parental()
+        reglas_objetivo = [
+            regla
+            for regla in reglas_actuales
+            if self._regla_control_parental_coincide_con_especificacion(
+                regla,
+                objetivos,
+                mac,
+            )
+        ]
+
+        for regla in sorted(reglas_objetivo, key=lambda item: item["indice"], reverse=True):
+            self.eliminar_regla_control_parental(regla["indice"])
+
+        eliminadas = [
+            self._etiqueta_regla_control_parental(
+                regla.get("url", ""),
+                regla.get("puerto_inicio", "0"),
+                regla.get("puerto_fin", "0"),
+                regla.get("protocolo", "BOTH"),
+            )
+            for regla in reglas_objetivo
+        ]
+        no_encontradas = [
+            self._etiqueta_regla_control_parental(
+                objetivo["url"],
+                objetivo["puerto_inicio"],
+                objetivo["puerto_fin"],
+                objetivo["protocolo"],
+            )
+            for objetivo in objetivos
+            if not any(
+                self._regla_control_parental_iguala_objetivo(regla, objetivo, mac)
+                for regla in reglas_objetivo
+            )
+        ]
+
+        return {
+            "eliminadas": eliminadas,
+            "no_encontradas": no_encontradas,
+        }
+
     def _obtener_payload_nueva_regla_control_parental(self):
         """Abre el formulario de creacion y devuelve sus campos actuales."""
 
@@ -587,7 +716,15 @@ class KaonRouterClient:
 
         return payload
 
-    def _regla_control_parental_existe(self, keyword, mac, protocol, deny):
+    def _regla_control_parental_existe(
+        self,
+        keyword,
+        mac,
+        protocol,
+        deny,
+        port_start="0",
+        port_end="0",
+    ):
         """Verifica contra el router si una regla ya esta creada."""
 
         time.sleep(1)
@@ -597,28 +734,39 @@ class KaonRouterClient:
         except (requests.RequestException, RuntimeError):
             return False
 
-        return self._regla_control_parental_en_lista(rules, keyword, mac, protocol, deny)
+        return self._regla_control_parental_en_lista(
+            rules,
+            keyword,
+            mac,
+            protocol,
+            deny,
+            port_start,
+            port_end,
+        )
 
-    def _regla_control_parental_en_lista(self, rules, keyword, mac, protocol, deny):
+    def _regla_control_parental_en_lista(
+        self,
+        rules,
+        keyword,
+        mac,
+        protocol,
+        deny,
+        port_start="0",
+        port_end="0",
+    ):
         """Busca una regla equivalente en una lista ya leida."""
 
-        keyword = normalize_url_keyword(keyword)
-        mac = self._normalizar_mac_control_parental(mac or "")
-        protocol = self._normalizar_protocolo_control_parental(protocol)
+        objetivo = {
+            "url": normalize_url_keyword(keyword) if keyword else "",
+            "mac": self._normalizar_mac_control_parental(mac or ""),
+            "protocolo": self._normalizar_protocolo_control_parental(protocol),
+            "puerto_inicio": self._normalizar_puerto_control_parental(port_start),
+            "puerto_fin": self._normalizar_puerto_control_parental(port_end),
+            "deny": deny,
+        }
 
         for rule in rules:
-            rule_action = rule.get("accion", "").strip().lower()
-            rule_denies = rule_action.startswith("deneg") or rule_action.startswith("deny")
-            rule_protocol = self._normalizar_protocolo_control_parental(
-                rule.get("protocolo", "")
-            )
-
-            if (
-                rule.get("url") == keyword
-                and self._normalizar_mac_control_parental(rule.get("mac", "")) == mac
-                and rule_protocol == protocol
-                and rule_denies == deny
-            ):
+            if self._regla_control_parental_iguala_objetivo(rule, objetivo, objetivo["mac"]):
                 return True
 
         return False
@@ -635,6 +783,53 @@ class KaonRouterClient:
             and self._normalizar_mac_control_parental(regla.get("mac", "")) == mac
         )
 
+    def _normalizar_especificacion_control_parental(self, regla):
+        """Normaliza una especificacion avanzada de control parental."""
+
+        keyword = normalize_url_keyword(regla.get("url", "")) if regla.get("url") else ""
+
+        return {
+            "url": keyword,
+            "puerto_inicio": self._normalizar_puerto_control_parental(
+                regla.get("puerto_inicio", 0)
+            ),
+            "puerto_fin": self._normalizar_puerto_control_parental(
+                regla.get("puerto_fin", 0)
+            ),
+            "protocolo": self._normalizar_protocolo_control_parental(
+                regla.get("protocolo", "BOTH")
+            ),
+            "deny": True,
+        }
+
+    def _regla_control_parental_coincide_con_especificacion(self, regla, objetivos, mac):
+        """Indica si una regla coincide con alguna especificacion normalizada."""
+
+        return any(
+            self._regla_control_parental_iguala_objetivo(regla, objetivo, mac)
+            for objetivo in objetivos
+        )
+
+    def _regla_control_parental_iguala_objetivo(self, regla, objetivo, mac):
+        """Compara una regla existente contra una especificacion exacta."""
+
+        rule_action = regla.get("accion", "").strip().lower()
+        rule_denies = rule_action.startswith("deneg") or rule_action.startswith("deny")
+        rule_protocol = self._normalizar_protocolo_control_parental(
+            regla.get("protocolo", "")
+        )
+
+        return (
+            rule_denies == objetivo["deny"]
+            and regla.get("url", "") == objetivo["url"]
+            and self._normalizar_mac_control_parental(regla.get("mac", "")) == mac
+            and rule_protocol == objetivo["protocolo"]
+            and self._normalizar_puerto_control_parental(regla.get("puerto_inicio", 0))
+            == objetivo["puerto_inicio"]
+            and self._normalizar_puerto_control_parental(regla.get("puerto_fin", 0))
+            == objetivo["puerto_fin"]
+        )
+
     def _normalizar_mac_control_parental(self, mac):
         """Normaliza la MAC de una regla; vacia o cero significa regla global."""
 
@@ -644,6 +839,35 @@ class KaonRouterClient:
             return ""
 
         return normalize_mac(mac)
+
+    def _normalizar_puerto_control_parental(self, port):
+        """Valida y normaliza un puerto del formulario de control parental."""
+
+        try:
+            port_number = int(str(port).strip() or "0")
+        except ValueError as error:
+            raise ValueError("El puerto debe ser un numero entre 0 y 65535.") from error
+
+        if port_number < 0 or port_number > 65535:
+            raise ValueError("El puerto debe estar entre 0 y 65535.")
+
+        return str(port_number)
+
+    def _etiqueta_regla_control_parental(self, keyword, port_start, port_end, protocol):
+        """Construye una etiqueta corta para reportar reglas creadas u omitidas."""
+
+        protocol = self._normalizar_protocolo_control_parental(protocol)
+
+        if keyword:
+            if port_start != "0" or port_end != "0":
+                return f"{keyword} {protocol} {port_start}-{port_end}"
+
+            return keyword
+
+        if port_start == port_end:
+            return f"{protocol} puerto {port_start}"
+
+        return f"{protocol} puertos {port_start}-{port_end}"
 
     def _valor_protocolo_control_parental(self, protocol):
         """Convierte una etiqueta de protocolo al valor interno del KAON."""

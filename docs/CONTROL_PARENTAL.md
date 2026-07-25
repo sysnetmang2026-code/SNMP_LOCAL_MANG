@@ -4,6 +4,26 @@ Esta nota documenta la integracion inicial probada desde consola con
 `python src/main.py`. La version web puede reutilizar los metodos agregados en
 `src/routers/kaon_client.py`.
 
+## Investigacion aplicada
+
+Fuentes oficiales usadas para reforzar los perfiles:
+
+- YouTube/Google Workspace recomienda controlar `www.youtube.com`,
+  `m.youtube.com`, `youtubei.googleapis.com`, `youtube.googleapis.com` y
+  `www.youtube-nocookie.com` cuando se administra acceso a YouTube:
+  https://knowledge.workspace.google.com/admin/youtube/control-youtube-content-available-to-users
+- Supercell publica dominios oficiales como `supercell.com`,
+  `supercellgames.com`, `supercellid.com`, `clashroyale.com` y `clash.com`:
+  https://supercell.com/en/our-domains/
+- Chrome documenta que QUIC puede habilitarse/deshabilitarse por politica y usa
+  trafico UDP; Apple indica que iCloud Private Relay usa QUIC sobre UDP 443:
+  https://chromeenterprise.google/intl/es-419_ALL/policies/quic-allowed/
+  https://developer.apple.com/icloud/prepare-your-network-for-icloud-private-relay/
+- Google Public DNS documenta DNS privado/DoT en Android y `dns.google`, con
+  puerto 853 para DNS-over-TLS:
+  https://developers.google.com/speed/public-dns/docs/using
+  https://developers.google.com/speed/public-dns/docs/secure-transports
+
 ## Endpoint del router
 
 La pantalla del router usa:
@@ -53,6 +73,22 @@ La opcion 10 usa los mismos perfiles para eliminar reglas `Denegar` que coincida
 con el dominio y la MAC indicada. Si se deja la MAC vacia, solo elimina reglas
 globales sin MAC.
 
+## Modo reforzado anti-evasion
+
+Al bloquear un perfil, la consola pregunta si se desea activar el refuerzo
+anti-evasion. Este refuerzo crea reglas adicionales para el mismo alcance:
+
+- `UDP 443`: fuerza a Chrome, YouTube, Facebook y apps modernas a no usar QUIC o
+  HTTP/3 y caer a TCP/TLS, donde el filtro URL del router suele funcionar mejor.
+- `UDP 80`: cubre variantes antiguas o alternativas de QUIC.
+- `TCP/UDP 853`: bloquea DNS-over-TLS usado por Android Private DNS.
+- `mask.icloud.com` y `mask-h2.icloud.com`: bloquean iCloud Private Relay.
+- `dns.google`: bloquea el resolver seguro de Google cuando se usa por nombre.
+
+El refuerzo puede afectar velocidad o comportamiento de otros sitios del mismo
+dispositivo, por eso se aplica solo si el usuario lo confirma. Al desbloquear un
+perfil, la consola pregunta aparte si tambien debe quitar el refuerzo.
+
 ## Prueba recomendada para celular
 
 Para bloquear Facebook en un telefono especifico:
@@ -71,8 +107,11 @@ dispositivos. Si asi bloquea, el problema era la MAC usada por el telefono.
 
 - El telefono usa MAC privada/aleatoria y el router recibe otra MAC.
 - La regla solo usa TCP, pero la app intenta salir por UDP/QUIC.
+- El navegador o app usa HTTP/3/QUIC sobre UDP 443.
 - La app usa dominios auxiliares como `graph.facebook.com`, `fbcdn.net`,
   `connect.facebook.net` o `messenger.com`.
+- El telefono usa DNS privado, DNS-over-TLS, DNS-over-HTTPS o iCloud Private
+  Relay.
 - El router filtra mejor dominios que URLs completas; por eso el codigo
   normaliza `https://www.facebook.com/` a `www.facebook.com`.
 - Algunas apps pueden usar DNS seguro o trafico cifrado que el filtro basico del

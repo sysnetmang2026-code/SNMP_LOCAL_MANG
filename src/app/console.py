@@ -23,41 +23,62 @@ PARENTAL_CONTROL_PROFILES = {
         "nombre": "Facebook / Messenger",
         "descripcion": "Bloqueo Facebook",
         "dominios": (
+            "facebook",
             "facebook.com",
             "www.facebook.com",
             "m.facebook.com",
             "mbasic.facebook.com",
             "graph.facebook.com",
+            "graph-video.facebook.com",
             "connect.facebook.net",
             "facebook.net",
             "fb.com",
+            "fbcdn",
             "fbcdn.net",
+            "xx.fbcdn.net",
+            "static.xx.fbcdn.net",
+            "scontent.xx.fbcdn.net",
+            "video.xx.fbcdn.net",
+            "fbsbx",
             "fbsbx.com",
+            "messenger",
             "messenger.com",
+            "m.me",
+            "meta.com",
         ),
     },
     "2": {
         "nombre": "YouTube",
         "descripcion": "Bloqueo YouTube",
         "dominios": (
+            "youtube",
             "youtube.com",
             "www.youtube.com",
             "m.youtube.com",
             "youtu.be",
+            "googlevideo",
             "googlevideo.com",
+            "ytimg",
             "ytimg.com",
+            "s.ytimg.com",
+            "youtubei",
             "youtubei.googleapis.com",
             "youtube.googleapis.com",
             "youtube-nocookie.com",
+            "www.youtube-nocookie.com",
         ),
     },
     "3": {
         "nombre": "Free Fire",
         "descripcion": "Bloqueo FreeFire",
         "dominios": (
+            "freefire",
             "freefiremobile.com",
+            "freefiremobile",
             "ff.garena.com",
+            "garena",
             "garena.com",
+            "garenanow",
             "garenanow.com",
             "garenanow.com.br",
         ),
@@ -66,12 +87,61 @@ PARENTAL_CONTROL_PROFILES = {
         "nombre": "Clash Royale / Supercell",
         "descripcion": "Bloqueo Supercell",
         "dominios": (
+            "clashroyale",
             "clashroyale.com",
+            "clash.com",
+            "supercell",
             "supercell.com",
+            "supercellid.com",
             "supercellgames.com",
         ),
     },
 }
+
+PARENTAL_CONTROL_HARDENING_RULES = (
+    {
+        "descripcion": "Bloqueo QUIC 443",
+        "url": "",
+        "puerto_inicio": "443",
+        "puerto_fin": "443",
+        "protocolo": "UDP",
+    },
+    {
+        "descripcion": "Bloqueo QUIC 80",
+        "url": "",
+        "puerto_inicio": "80",
+        "puerto_fin": "80",
+        "protocolo": "UDP",
+    },
+    {
+        "descripcion": "Bloqueo DNS privado",
+        "url": "",
+        "puerto_inicio": "853",
+        "puerto_fin": "853",
+        "protocolo": "BOTH",
+    },
+    {
+        "descripcion": "Bloqueo Apple Relay",
+        "url": "mask.icloud.com",
+        "puerto_inicio": "0",
+        "puerto_fin": "0",
+        "protocolo": "BOTH",
+    },
+    {
+        "descripcion": "Bloqueo Apple Relay",
+        "url": "mask-h2.icloud.com",
+        "puerto_inicio": "0",
+        "puerto_fin": "0",
+        "protocolo": "BOTH",
+    },
+    {
+        "descripcion": "Bloqueo DoH Google",
+        "url": "dns.google",
+        "puerto_inicio": "0",
+        "puerto_fin": "0",
+        "protocolo": "BOTH",
+    },
+)
 
 
 def crear_cliente_router():
@@ -244,6 +314,10 @@ def bloquear_control_parental():
     print(f"\nPerfil: {profile['nombre']}")
     print(f"Alcance: {alcance}")
     print("Protocolo: BOTH (TCP y UDP)")
+    usar_refuerzo = preguntar_si_no(
+        "Activar refuerzo anti-evasion (QUIC, DNS privado y Apple Relay)?",
+        default=True,
+    )
 
     if not preguntar_si_no("Desea crear estas reglas de control parental?"):
         print("Operacion cancelada.")
@@ -255,6 +329,13 @@ def bloquear_control_parental():
         mac=mac,
         descripcion=profile["descripcion"],
     )
+    resultado_refuerzo = {"creadas": [], "omitidas": []}
+
+    if usar_refuerzo:
+        resultado_refuerzo = router.bloquear_reglas_control_parental(
+            PARENTAL_CONTROL_HARDENING_RULES,
+            mac=mac,
+        )
 
     print("\nControl parental actualizado.")
 
@@ -267,6 +348,16 @@ def bloquear_control_parental():
         print("Reglas ya existentes:")
         for dominio in resultado["omitidas"]:
             print(f"- {dominio}")
+
+    if resultado_refuerzo["creadas"]:
+        print("Refuerzos anti-evasion creados:")
+        for regla in resultado_refuerzo["creadas"]:
+            print(f"- {regla}")
+
+    if resultado_refuerzo["omitidas"]:
+        print("Refuerzos anti-evasion ya existentes:")
+        for regla in resultado_refuerzo["omitidas"]:
+            print(f"- {regla}")
 
     if mac:
         print("\nNota para celulares:")
@@ -290,6 +381,10 @@ def desbloquear_control_parental():
 
     print(f"\nPerfil: {profile['nombre']}")
     print(f"Alcance a desbloquear: {alcance}")
+    quitar_refuerzo = preguntar_si_no(
+        "Eliminar tambien el refuerzo anti-evasion de ese alcance?",
+        default=False,
+    )
 
     if not preguntar_si_no("Desea eliminar estas reglas de control parental?"):
         print("Operacion cancelada.")
@@ -300,6 +395,13 @@ def desbloquear_control_parental():
         profile["dominios"],
         mac=mac,
     )
+    resultado_refuerzo = {"eliminadas": [], "no_encontradas": []}
+
+    if quitar_refuerzo:
+        resultado_refuerzo = router.desbloquear_reglas_control_parental(
+            PARENTAL_CONTROL_HARDENING_RULES,
+            mac=mac,
+        )
 
     print("\nControl parental actualizado.")
 
@@ -312,6 +414,16 @@ def desbloquear_control_parental():
         print("Reglas no encontradas para ese alcance:")
         for dominio in resultado["no_encontradas"]:
             print(f"- {dominio}")
+
+    if resultado_refuerzo["eliminadas"]:
+        print("Refuerzos anti-evasion eliminados:")
+        for regla in resultado_refuerzo["eliminadas"]:
+            print(f"- {regla}")
+
+    if resultado_refuerzo["no_encontradas"]:
+        print("Refuerzos anti-evasion no encontrados:")
+        for regla in resultado_refuerzo["no_encontradas"]:
+            print(f"- {regla}")
 
 
 def bloquear_mac():

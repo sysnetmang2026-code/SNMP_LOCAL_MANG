@@ -38,7 +38,9 @@ La muestra del formulario original esta en `docs/router_samples/kaon_wlanAccess.
 
 El control parental usa `/RgFiltering.asp` y `/goform/RgFiltering` para crear o
 quitar reglas por dominio con MAC opcional. Las reglas nuevas del menu se envian
-con `FilteringProtocol=254` para bloquear TCP y UDP.
+con `FilteringProtocol=254` para bloquear TCP y UDP. El modo reforzado agrega
+reglas por puerto para reducir evasion por QUIC, DNS privado e iCloud Private
+Relay.
 
 ## Pruebas actuales
 
