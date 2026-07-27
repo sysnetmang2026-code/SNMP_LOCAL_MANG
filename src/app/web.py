@@ -17,6 +17,11 @@ from urllib.parse import parse_qs, urlparse
 import requests
 
 from app.device_store import get_aliases, list_scanned_devices, save_alias
+from app.site_blocking_profiles import (
+    PARENTAL_HARDENING_RULES,
+    SITE_BLOCKING_PROFILES,
+    get_site_blocking_profile,
+)
 from config import BASE_DIR, DATABASE_PATH, ROUTER_PASS, ROUTER_URL, ROUTER_USER
 from network.adapters import get_subnet
 from network.nmap_scanner import EscanerRedDB
@@ -96,6 +101,7 @@ def normalize_device(device, aliases, blocked_macs=None, source="router"):
     mac = normalize_mac(device.get("mac", ""))
     hostname = device.get("hostname") or "Desconocido"
     fabricante = device.get("fabricante", "")
+    source = device.get("source", source)
 
     return {
         "mac": mac,
@@ -111,7 +117,130 @@ def normalize_device(device, aliases, blocked_macs=None, source="router"):
         "type": infer_device_type(hostname, fabricante),
         "blocked": mac in blocked_macs,
         "source": source,
+        "band": device.get("band", ""),
+        "network": device.get("network", ""),
     }
+
+
+def _device_identity(device):
+    """Devuelve una clave estable para deduplicar dispositivos por MAC o IP."""
+
+    mac = normalize_mac(device.get("mac", ""))
+
+    if mac:
+        return f"mac:{mac}"
+
+    ip = (device.get("ip") or "").strip()
+
+    if ip:
+        return f"ip:{ip}"
+
+    return None
+
+
+def _is_unknown_hostname(hostname):
+    """Indica si un hostname no aporta informacion util al panel."""
+
+    return not hostname or hostname.strip().lower() == "desconocido"
+
+
+def merge_router_and_scanned_devices(router_clients, scanned_devices):
+    """Une clientes del router y dispositivos Nmap sin repetir MAC."""
+
+    merged = {}
+    ordered_keys = []
+
+    for client in router_clients:
+        item = {**client, "source": "router"}
+        key = _device_identity(item)
+
+        if not key:
+            continue
+
+        merged[key] = item
+        ordered_keys.append(key)
+
+    for scanned in scanned_devices:
+        item = {**scanned, "source": "database"}
+        key = _device_identity(item)
+
+        if not key:
+            continue
+
+        if key not in merged:
+            merged[key] = item
+            ordered_keys.append(key)
+            continue
+
+        current = merged[key]
+        current["source"] = "router+nmap"
+
+        if not current.get("ip") and item.get("ip"):
+            current["ip"] = item["ip"]
+
+        if _is_unknown_hostname(current.get("hostname")) and not _is_unknown_hostname(item.get("hostname")):
+            current["hostname"] = item["hostname"]
+
+        if not current.get("fabricante") and item.get("fabricante"):
+            current["fabricante"] = item["fabricante"]
+
+    return [merged[key] for key in ordered_keys]
+
+
+def _parental_rule_denies(rule):
+    """Indica si una regla de control parental bloquea trafico."""
+
+    action = (rule.get("accion") or "").strip().lower()
+    return action.startswith("deneg") or action.startswith("deny")
+
+
+def _parental_rule_matches_mac(rule, mac):
+    """Compara la MAC destino de una regla con el alcance solicitado."""
+
+    return normalize_mac(rule.get("mac", "")) == normalize_mac(mac or "")
+
+
+def _site_profile_response(profile, rules=None, mac=""):
+    """Convierte un perfil de bloqueo al contrato usado por el frontend."""
+
+    rules = rules or []
+    domains = list(dict.fromkeys(profile["domains"]))
+    blocked_domains = {
+        rule.get("url")
+        for rule in rules
+        if _parental_rule_denies(rule) and _parental_rule_matches_mac(rule, mac)
+    }
+    matched = [domain for domain in domains if domain in blocked_domains]
+    blocked_count = len(matched)
+
+    if blocked_count == 0:
+        state = "available"
+    elif blocked_count == len(domains):
+        state = "blocked"
+    else:
+        state = "partial"
+
+    return {
+        "id": profile["id"],
+        "name": profile["name"],
+        "short": profile["short"],
+        "category": profile["category"],
+        "description": profile["description"],
+        "theme": profile["theme"],
+        "domains_count": len(domains),
+        "blocked_count": blocked_count,
+        "state": state,
+        "blocked": state == "blocked",
+    }
+
+
+def site_profiles_response(rules=None, mac=""):
+    """Devuelve todos los perfiles con estado calculado."""
+
+    return [
+        _site_profile_response(profile, rules=rules, mac=mac)
+        for profile in SITE_BLOCKING_PROFILES
+    ]
 
 
 class WebHandler(BaseHTTPRequestHandler):
@@ -139,6 +268,11 @@ class WebHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/scan/devices":
             self.handle_scanned_devices()
+            return
+
+        if parsed.path == "/api/parental/sites":
+            params = parse_qs(parsed.query)
+            self.handle_parental_sites(params.get("mac", [""])[0])
             return
 
         self.serve_static(parsed.path)
@@ -169,34 +303,46 @@ class WebHandler(BaseHTTPRequestHandler):
                 self.handle_scan()
                 return
 
+            if parsed.path == "/api/parental/block":
+                self.handle_parental_action(block=True)
+                return
+
+            if parsed.path == "/api/parental/unblock":
+                self.handle_parental_action(block=False)
+                return
+
             self.respond_json({"ok": False, "error": "Ruta no encontrada."}, status=404)
         except Exception as error:
             self.respond_json({"ok": False, "error": str(error)}, status=500)
 
     def handle_devices(self):
-        """Responde con dispositivos activos del router o respaldo de SQLite."""
+        """Responde con clientes WiFi y dispositivos detectados por Nmap."""
 
         aliases = get_aliases()
+        scanned_devices = list_scanned_devices()
 
         try:
             router = crear_cliente_router()
-            clients = router.listar_clientes_24ghz()
-            blocked_macs = set(router.obtener_macs_bloqueadas())
+            clients = router.listar_clientes_todas_las_bandas()
+            blocked_macs = set(router.obtener_macs_bloqueadas_todas_las_bandas())
+            combined_devices = merge_router_and_scanned_devices(clients, scanned_devices)
             devices = [
-                normalize_device(client, aliases, blocked_macs, source="router")
-                for client in clients
+                normalize_device(device, aliases, blocked_macs)
+                for device in combined_devices
             ]
 
             self.respond_json({
                 "ok": True,
-                "source": "router",
+                "source": "router+nmap",
                 "devices": devices,
                 "blocked_macs": sorted(blocked_macs),
+                "router_count": len(clients),
+                "scanned_count": len(scanned_devices),
             })
         except Exception as error:
             scanned = [
                 normalize_device(device, aliases, source="database")
-                for device in list_scanned_devices()
+                for device in scanned_devices
             ]
             self.respond_json({
                 "ok": True,
@@ -231,6 +377,33 @@ class WebHandler(BaseHTTPRequestHandler):
             for device in list_scanned_devices()
         ]
         self.respond_json({"ok": True, "devices": devices})
+
+    def handle_parental_sites(self, mac=""):
+        """Responde con perfiles de control parental y su estado actual."""
+
+        mac = normalize_mac(mac or "")
+
+        if mac and not is_valid_mac(mac):
+            self.respond_json({"ok": False, "error": "La MAC no es valida."}, status=400)
+            return
+
+        try:
+            router = crear_cliente_router()
+            rules = router.obtener_reglas_control_parental()
+            self.respond_json({
+                "ok": True,
+                "profiles": site_profiles_response(rules=rules, mac=mac),
+                "mac": mac,
+                "source": "router",
+            })
+        except Exception as error:
+            self.respond_json({
+                "ok": True,
+                "profiles": site_profiles_response(mac=mac),
+                "mac": mac,
+                "source": "catalog",
+                "warning": str(error),
+            })
 
     def handle_save_alias(self):
         """Valida y persiste un alias visible asociado a una MAC."""
@@ -287,6 +460,69 @@ class WebHandler(BaseHTTPRequestHandler):
 
         self.respond_json({"ok": True, "message": "Dispositivo desbloqueado.", "mac": mac})
 
+    def handle_parental_action(self, block):
+        """Bloquea o desbloquea un perfil de sitios en control parental."""
+
+        payload = self.read_json()
+        profile = get_site_blocking_profile(payload.get("profile_id", ""))
+        mac = normalize_mac(payload.get("mac", "") or "")
+        hardening = bool(payload.get("hardening"))
+
+        if mac and not is_valid_mac(mac):
+            self.respond_json({"ok": False, "error": "La MAC no es valida."}, status=400)
+            return
+
+        router = crear_cliente_router()
+
+        if block:
+            result = router.bloquear_dominios_control_parental(
+                profile["domains"],
+                mac=mac,
+                descripcion=profile["description"],
+            )
+
+            if hardening:
+                result["refuerzo"] = router.bloquear_reglas_control_parental(
+                    PARENTAL_HARDENING_RULES,
+                    mac=mac,
+                )
+
+            message = f"{profile['name']} bloqueado."
+        else:
+            result = router.desbloquear_dominios_control_parental(
+                profile["domains"],
+                mac=mac,
+            )
+
+            if hardening:
+                result["refuerzo"] = router.desbloquear_reglas_control_parental(
+                    PARENTAL_HARDENING_RULES,
+                    mac=mac,
+                )
+
+            message = f"{profile['name']} desbloqueado."
+
+        warning = ""
+
+        try:
+            rules = router.obtener_reglas_control_parental()
+        except Exception as error:
+            rules = []
+            warning = str(error)
+
+        response = {
+            "ok": True,
+            "message": message,
+            "profile": _site_profile_response(profile, rules=rules, mac=mac),
+            "profiles": site_profiles_response(rules=rules, mac=mac),
+            "result": result,
+        }
+
+        if warning:
+            response["warning"] = warning
+
+        self.respond_json(response)
+
     def handle_update_guest(self):
         """Activa o desactiva la red de invitados con los datos recibidos."""
 
@@ -327,7 +563,7 @@ class WebHandler(BaseHTTPRequestHandler):
         finally:
             db.close()
 
-        self.handle_scanned_devices()
+        self.handle_devices()
 
     def serve_static(self, requested_path):
         """Sirve archivos de `view/` evitando traversal fuera del directorio."""

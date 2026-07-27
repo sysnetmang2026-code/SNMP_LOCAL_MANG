@@ -39,6 +39,10 @@
         <span class="nav-icon" aria-hidden="true">NM</span>
         Escaneo Nmap
       </button>
+      <button class="nav-item" data-view="parental" type="button">
+        <span class="nav-icon" aria-hidden="true">CP</span>
+        Control parental
+      </button>
     </nav>
 
     <div class="router-card">
@@ -137,6 +141,7 @@
             <button class="quick-action" type="button" data-view-link="access">Bloquear MAC</button>
             <button class="quick-action" type="button" data-view-link="guest">Red invitados</button>
             <button class="quick-action" type="button" data-view-link="scan">Nmap</button>
+            <button class="quick-action" type="button" data-view-link="parental">Bloquear sitios</button>
           </div>
         </section>
       </div>
@@ -218,6 +223,42 @@
           </ul>
         </section>
       </div>
+    </section>
+
+    <!-- Vista conectada a `/api/parental/*` para bloquear sitios y juegos. -->
+    <section class="view" id="parental" aria-labelledby="parental-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Control parental</p>
+          <h2 id="parental-title">Bloquear sitios y juegos</h2>
+        </div>
+        <button class="button primary" id="refreshParentalSites" type="button">Actualizar</button>
+      </div>
+
+      <section class="parental-toolbar">
+        <label>
+          MAC destino
+          <input id="siteScopeMac" type="text" placeholder="Vacia para todos">
+        </label>
+        <label class="checkbox-option">
+          <input id="siteHardening" type="checkbox">
+          Refuerzo anti-evasion
+        </label>
+      </section>
+
+      <div class="notice" id="parentalNotice" hidden></div>
+
+      <section class="site-grid" id="siteGrid" aria-label="Lista de sitios y juegos">
+        <article class="site-card skeleton">
+          <div class="site-brand">
+            <span class="site-mark">CP</span>
+            <div>
+              <h3>Cargando perfiles</h3>
+              <span>Control parental</span>
+            </div>
+          </div>
+        </article>
+      </section>
     </section>
 
     <!-- Vista conectada a `/api/guest` para administrar la red de invitados. -->

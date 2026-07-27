@@ -61,15 +61,19 @@ La tabla `device_aliases` se crea desde `app.device_store.ensure_alias_table`:
 `src/app/web.py` expone estas rutas:
 
 - `GET /`: entrega `view/panel-red.html`.
-- `GET /api/devices`: lista clientes del router; si falla, usa SQLite.
+- `GET /api/devices`: lista clientes del router en 2.4/5 GHz y suma
+  dispositivos guardados por Nmap; si el router falla, usa SQLite.
 - `GET /api/blocked`: lista las MAC bloqueadas en el router.
 - `GET /api/guest?band=2.4`: devuelve configuracion de invitados.
 - `GET /api/scan/devices`: devuelve dispositivos historicos escaneados.
+- `GET /api/parental/sites`: devuelve perfiles de sitios y juegos bloqueables.
 - `POST /api/devices/alias`: guarda un alias visible por MAC.
 - `POST /api/devices/block`: agrega una MAC al filtro de bloqueo.
 - `POST /api/devices/unblock`: elimina una MAC del filtro de bloqueo.
 - `POST /api/guest`: activa o desactiva invitados y actualiza SSID/clave.
 - `POST /api/scan`: detecta subred local, ejecuta Nmap y devuelve resultados.
+- `POST /api/parental/block`: crea reglas de bloqueo para un perfil.
+- `POST /api/parental/unblock`: elimina reglas de bloqueo para un perfil.
 
 ## Archivos fuente Python
 
@@ -139,6 +143,12 @@ Define `EscanerRedDB`, clase que abre SQLite, garantiza la tabla
 `dispositivos`, carga el catalogo OUI, ejecuta Nmap con `-sn -PR -n`, resuelve
 hostnames por Nmap, DNS inverso o scripts NSE, guarda dispositivos y muestra
 una tabla de resultados por consola.
+
+### `src/app/site_blocking_profiles.py`
+
+Catalogo de perfiles usados por la vista web de control parental. Agrupa los
+dominios de servicios sociales y juegos moviles para crear o eliminar reglas en
+el router KAON.
 
 ### `src/routers/__init__.py`
 

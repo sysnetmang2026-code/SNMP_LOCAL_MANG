@@ -519,6 +519,23 @@ h3 {
   margin-bottom: 18px;
 }
 
+.device-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.device-meta-row .device-meta {
+  margin-bottom: 0;
+}
+
+.device-meta.source {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+
 .connection-dot {
   position: absolute;
   top: 16px;
@@ -533,6 +550,11 @@ h3 {
 .connection-dot.weak {
   background: var(--warning);
   box-shadow: 0 0 0 5px rgba(217, 119, 6, 0.18);
+}
+
+.connection-dot.scanned {
+  background: var(--primary);
+  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.15);
 }
 
 .is-blocked .connection-dot {
@@ -884,6 +906,255 @@ th {
   background: linear-gradient(90deg, var(--primary), var(--accent));
 }
 
+/* Control parental: bloqueo rapido de sitios y juegos. */
+.parental-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) minmax(220px, 1fr);
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.parental-toolbar label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-weight: 800;
+}
+
+.parental-toolbar input[type="text"] {
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: var(--text);
+  padding: 0 12px;
+}
+
+.checkbox-option {
+  min-height: 40px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  justify-content: start;
+  color: var(--text);
+}
+
+.checkbox-option input {
+  width: 18px;
+  height: 18px;
+}
+
+.site-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+.site-card {
+  min-height: 176px;
+  display: grid;
+  align-content: space-between;
+  gap: 16px;
+  border: 3px solid #111827;
+  border-radius: var(--radius);
+  background: #ffffff;
+  box-shadow: 0 14px 24px rgba(15, 23, 42, 0.06);
+  padding: 18px;
+}
+
+.site-card.is-blocked {
+  border-color: var(--danger);
+  background: #fffafa;
+}
+
+.site-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.site-brand h3 {
+  margin: 0 0 2px;
+  font-size: 25px;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+}
+
+.site-brand span:not(.site-mark) {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.site-mark {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0;
+  box-shadow: 0 12px 18px rgba(15, 23, 42, 0.16);
+}
+
+.site-youtube {
+  background: #ff0000;
+}
+
+.site-facebook {
+  background: #1877f2;
+}
+
+.site-instagram {
+  background: linear-gradient(135deg, #f58529, #dd2a7b 45%, #515bd4);
+}
+
+.site-tiktok,
+.site-x {
+  background: #0f172a;
+}
+
+.site-threads {
+  background: #111827;
+}
+
+.site-reddit {
+  background: #ff4500;
+}
+
+.site-freefire {
+  background: #f59e0b;
+}
+
+.site-roblox {
+  background: #242730;
+}
+
+.site-eafc {
+  background: #111827;
+  color: #c7ff3d;
+}
+
+.site-clashroyale {
+  background: #2563eb;
+}
+
+.site-clashclans {
+  background: #b45309;
+}
+
+.site-brawlstars {
+  background: #facc15;
+  color: #111827;
+}
+
+.site-codmobile {
+  background: #18181b;
+  color: #facc15;
+}
+
+.site-pubg {
+  background: #f97316;
+}
+
+.site-status {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  padding: 5px 10px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.site-status small {
+  color: inherit;
+  font-size: 11px;
+}
+
+.site-status.blocked {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.site-status.partial {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.site-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.site-action {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 999px;
+  background: #ffffff;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.site-action span {
+  position: relative;
+  width: 13px;
+  height: 11px;
+  display: inline-block;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+}
+
+.site-action span::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -8px;
+  width: 5px;
+  height: 7px;
+  border: 2px solid currentColor;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+
+.site-action.block {
+  border: 3px solid var(--danger);
+  color: var(--danger);
+}
+
+.site-action.unblock {
+  border: 3px solid var(--success);
+  color: var(--success);
+}
+
+.site-action.unblock span::before {
+  left: 5px;
+  transform: rotate(22deg);
+  transform-origin: bottom left;
+}
+
+.site-action:disabled {
+  opacity: 0.68;
+  cursor: wait;
+}
+
 /* Modal de confirmacion para acciones sensibles. */
 .modal-backdrop {
   position: fixed;
@@ -973,7 +1244,8 @@ th {
   .metrics,
   .content-grid,
   .scan-banner,
-  .device-grid {
+  .device-grid,
+  .site-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -997,7 +1269,9 @@ th {
   .content-grid,
   .scan-banner,
   .form.two-cols,
-  .device-grid {
+  .device-grid,
+  .parental-toolbar,
+  .site-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1040,7 +1314,7 @@ th {
   }
 
   .nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px;
   }
 
@@ -1156,6 +1430,47 @@ th {
 
   .device-grid {
     gap: 12px;
+  }
+
+  .parental-toolbar {
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 14px;
+  }
+
+  .parental-toolbar input[type="text"] {
+    min-height: 44px;
+  }
+
+  .site-grid {
+    gap: 12px;
+  }
+
+  .site-card {
+    min-height: 150px;
+    gap: 12px;
+    border-width: 2px;
+    padding: 14px;
+  }
+
+  .site-mark {
+    width: 48px;
+    height: 48px;
+    font-size: 15px;
+  }
+
+  .site-brand h3 {
+    font-size: 19px;
+  }
+
+  .site-actions {
+    gap: 8px;
+  }
+
+  .site-action {
+    min-height: 40px;
+    border-width: 2px;
+    font-size: 13px;
   }
 
   .device-card {

@@ -187,10 +187,10 @@ def imprimir_clientes(clientes):
 
 
 def listar_clientes_router():
-    """Consulta el router e imprime los clientes WiFi de la banda 2.4 GHz."""
+    """Consulta el router e imprime los clientes WiFi de todas las bandas."""
 
     router = crear_cliente_router()
-    imprimir_clientes(router.listar_clientes_24ghz())
+    imprimir_clientes(router.listar_clientes_todas_las_bandas())
 
 
 def listar_macs_bloqueadas():

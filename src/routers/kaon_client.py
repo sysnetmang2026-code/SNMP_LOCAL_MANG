@@ -166,8 +166,11 @@ class KaonRouterClient:
 
         return f"{self.router_url}/goform/RgFiltering"
 
-    def obtener_pagina_acceso(self):
+    def obtener_pagina_acceso(self, band=None):
         """Obtiene el HTML de la pantalla de control de acceso MAC."""
+
+        if band is not None:
+            self.seleccionar_banda_wifi(band)
 
         return self._get_autenticado(self.access_url)
 
@@ -227,10 +230,11 @@ class KaonRouterClient:
 
         return response
 
-    def listar_clientes_24ghz(self):
-        """Extrae la tabla de clientes conectados desde `wlanAccess.asp`."""
+    def listar_clientes_banda(self, band="2.4"):
+        """Extrae clientes conectados de la banda activa en `wlanAccess.asp`."""
 
-        soup = BeautifulSoup(self.obtener_pagina_acceso(), "html.parser")
+        band = self._normalizar_banda(band)
+        soup = BeautifulSoup(self.obtener_pagina_acceso(band=band), "html.parser")
         table = soup.find("table", {"class": "ListTypeA"})
 
         if not table:
@@ -252,14 +256,42 @@ class KaonRouterClient:
                 "hostname": columns[4].get_text(strip=True) or "Desconocido",
                 "modo": columns[5].get_text(strip=True),
                 "velocidad": columns[6].get_text(strip=True),
+                "band": band,
+                "network": f"WiFi {band} GHz",
             })
 
         return clients
 
-    def obtener_macs_bloqueadas(self):
+    def listar_clientes_todas_las_bandas(self):
+        """Lista clientes visibles en las bandas WiFi soportadas por el router."""
+
+        clients = []
+        successful_bands = 0
+        errors = []
+
+        for band in BAND_URLS:
+            try:
+                clients.extend(self.listar_clientes_banda(band))
+                successful_bands += 1
+            except Exception as error:
+                errors.append(f"{band} GHz: {error}")
+
+        if successful_bands == 0 and errors:
+            raise RuntimeError(
+                "No se pudieron leer clientes WiFi: " + "; ".join(errors)
+            )
+
+        return clients
+
+    def listar_clientes_24ghz(self):
+        """Extrae la tabla de clientes conectados de la banda 2.4 GHz."""
+
+        return self.listar_clientes_banda("2.4")
+
+    def obtener_macs_bloqueadas(self, band=None):
         """Lee las MAC cargadas en los campos `WirelessMac01..20`."""
 
-        soup = BeautifulSoup(self.obtener_pagina_acceso(), "html.parser")
+        soup = BeautifulSoup(self.obtener_pagina_acceso(band=band), "html.parser")
         blocked_macs = []
 
         for field_name in WIRELESS_MAC_FIELDS:
@@ -270,6 +302,27 @@ class KaonRouterClient:
                 blocked_macs.append(normalize_mac(value))
 
         return blocked_macs
+
+    def obtener_macs_bloqueadas_todas_las_bandas(self):
+        """Lee la union de MAC bloqueadas en todas las bandas WiFi."""
+
+        blocked_macs = set()
+        successful_bands = 0
+        errors = []
+
+        for band in BAND_URLS:
+            try:
+                blocked_macs.update(self.obtener_macs_bloqueadas(band=band))
+                successful_bands += 1
+            except Exception as error:
+                errors.append(f"{band} GHz: {error}")
+
+        if successful_bands == 0 and errors:
+            raise RuntimeError(
+                "No se pudieron leer MAC bloqueadas: " + "; ".join(errors)
+            )
+
+        return sorted(blocked_macs)
 
     def bloquear_mac(self, mac, network_index=0):
         """Agrega una MAC al filtro de denegacion del router."""

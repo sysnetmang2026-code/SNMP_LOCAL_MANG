@@ -22,6 +22,11 @@ const guestPassword = document.getElementById("guestPassword");
 const saveGuest = document.getElementById("saveGuest");
 const scanNotice = document.getElementById("scanNotice");
 const startScan = document.getElementById("startScan");
+const parentalNotice = document.getElementById("parentalNotice");
+const siteGrid = document.getElementById("siteGrid");
+const siteScopeMac = document.getElementById("siteScopeMac");
+const siteHardening = document.getElementById("siteHardening");
+const refreshParentalSites = document.getElementById("refreshParentalSites");
 const modal = document.getElementById("actionModal");
 const modalTitle = document.getElementById("modalTitle");
 const modalCopy = document.getElementById("modalCopy");
@@ -63,8 +68,10 @@ const sampleDevices = [
 
 // Estado de cliente mantenido en memoria durante la sesion del navegador.
 let devices = [];
+let siteProfiles = [];
 let pendingAction = null;
 let guestLoaded = false;
+let parentalLoaded = false;
 
 /**
  * Activa una vista del panel y carga datos diferidos cuando corresponde.
@@ -87,6 +94,10 @@ function showView(viewId) {
   if (viewId === "guest" && !guestLoaded) {
     loadGuestConfig();
   }
+
+  if (viewId === "parental" && !parentalLoaded) {
+    loadSiteProfiles();
+  }
 }
 
 /**
@@ -96,7 +107,7 @@ function showView(viewId) {
  * @returns {string} Texto con entidades HTML escapadas.
  */
 function escapeHtml(value) {
-  return String(value || "")
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -158,6 +169,118 @@ function deviceTypeLabel(type) {
   };
 
   return labels[type] || labels.unknown;
+}
+
+/**
+ * Describe de donde se obtuvo el dispositivo visible.
+ *
+ * @param {object} device Dispositivo normalizado por la API.
+ * @returns {string} Etiqueta corta para la tarjeta.
+ */
+function deviceSourceLabel(device) {
+  const network = device.network || (device.band ? `WiFi ${device.band} GHz` : "");
+
+  if (device.source === "database") {
+    return "Nmap";
+  }
+
+  if (device.source === "router+nmap") {
+    return `${network || "Router"} + Nmap`;
+  }
+
+  return network || "Router";
+}
+
+/**
+ * Devuelve el texto de estado de conexion segun el origen del dato.
+ *
+ * @param {object} device Dispositivo normalizado por la API.
+ * @returns {string} Texto para tooltip de estado.
+ */
+function deviceStatusText(device) {
+  if (device.blocked) {
+    return "Bloqueado";
+  }
+
+  if (device.source === "database") {
+    return "Escaneado por Nmap";
+  }
+
+  if (device.source === "router+nmap") {
+    return "Conectado y detectado por Nmap";
+  }
+
+  return "Conectado";
+}
+
+/**
+ * Traduce el estado de control parental a texto visible.
+ *
+ * @param {string} state Estado recibido desde la API.
+ * @returns {string} Etiqueta corta.
+ */
+function siteStateLabel(state) {
+  const labels = {
+    blocked: "Bloqueado",
+    partial: "Parcial",
+    available: "Libre",
+  };
+
+  return labels[state] || labels.available;
+}
+
+/**
+ * Renderiza una tarjeta de bloqueo para un perfil de sitio o juego.
+ *
+ * @param {object} profile Perfil recibido desde la API.
+ * @returns {string} Marcado HTML seguro.
+ */
+function siteCard(profile) {
+  const state = profile.state || "available";
+  const theme = profile.theme || "default";
+
+  return `
+    <article class="site-card ${state === "blocked" ? "is-blocked" : ""}">
+      <div class="site-brand">
+        <span class="site-mark site-${escapeHtml(theme)}">${escapeHtml(profile.short)}</span>
+        <div>
+          <h3>${escapeHtml(profile.name)}</h3>
+          <span>${escapeHtml(profile.category)}</span>
+        </div>
+      </div>
+      <div class="site-status ${escapeHtml(state)}">
+        ${escapeHtml(siteStateLabel(state))}
+        <small>${escapeHtml(profile.blocked_count || 0)}/${escapeHtml(profile.domains_count || 0)} reglas</small>
+      </div>
+      <div class="site-actions">
+        <button class="site-action block" type="button" data-site-action="block" data-profile-id="${escapeHtml(profile.id)}">
+          <span aria-hidden="true"></span>
+          Bloquear
+        </button>
+        <button class="site-action unblock" type="button" data-site-action="unblock" data-profile-id="${escapeHtml(profile.id)}">
+          <span aria-hidden="true"></span>
+          Desbloquear
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+/**
+ * Pinta la grilla de sitios y juegos del control parental.
+ */
+function renderSiteProfiles() {
+  if (siteProfiles.length === 0) {
+    siteGrid.innerHTML = `
+      <article class="empty-state">
+        <h3>No hay perfiles para mostrar</h3>
+        <p>Actualice el control parental para volver a consultar el router.</p>
+      </article>
+    `;
+    return;
+  }
+
+  siteGrid.innerHTML = siteProfiles.map(siteCard).join("");
 }
 
 /**
@@ -265,8 +388,8 @@ function renderDevices() {
   const cards = visibleDevices.map((device) => {
     const blockLabel = device.blocked ? "Desbloquear" : "Bloquear";
     const blockClass = device.blocked ? "unblock" : "block";
-    const signalClass = Number.parseInt(device.rssi, 10) <= -75 ? "weak" : "";
-    const statusText = device.blocked ? "Bloqueado" : "Conectado";
+    const signalClass = device.source === "database" ? "scanned" : Number.parseInt(device.rssi, 10) <= -75 ? "weak" : "";
+    const statusText = deviceStatusText(device);
 
     return `
       <article class="device-card ${device.blocked ? "is-blocked" : ""}">
@@ -276,7 +399,10 @@ function renderDevices() {
         </div>
         <h3>${escapeHtml(device.name)}</h3>
         <p>${escapeHtml(deviceTypeLabel(device.type))}</p>
-        <span class="device-meta">${escapeHtml(device.ip || "IP no disponible")}</span>
+        <div class="device-meta-row">
+          <span class="device-meta">${escapeHtml(device.ip || "IP no disponible")}</span>
+          <span class="device-meta source">${escapeHtml(deviceSourceLabel(device))}</span>
+        </div>
         <div class="device-actions">
           <button class="action-button ${blockClass}" type="button" data-action="block" data-mac="${escapeHtml(device.mac)}" data-action-copy="${escapeHtml(actionCopy("block", device))}">
             ${blockLabel}
@@ -333,7 +459,7 @@ async function loadDevices() {
     <article class="device-card skeleton">
       <div class="device-avatar"></div>
       <h3>Cargando dispositivos</h3>
-      <p>Consultando el router y la base de datos.</p>
+      <p>Consultando WiFi 2.4/5 GHz y Nmap.</p>
     </article>
   `;
 
@@ -343,6 +469,8 @@ async function loadDevices() {
 
     if (data.source === "database") {
       setNotice("No se pudo leer el router ahora mismo. Estoy mostrando lo guardado en la base de datos.", "warning");
+    } else if (Number(data.scanned_count || 0) > 0) {
+      setNotice("Mostrando clientes WiFi de 2.4/5 GHz junto con dispositivos guardados por Nmap.", "success");
     } else {
       setNotice("");
     }
@@ -413,7 +541,7 @@ async function runScan() {
   try {
     const data = await apiRequest("/api/scan", { method: "POST" });
     devices = data.devices || [];
-    setBoxNotice(scanNotice, "Escaneo terminado. Los dispositivos fueron guardados en la base de datos.", "success");
+    setBoxNotice(scanNotice, "Escaneo terminado. Los dispositivos fueron guardados y unidos con los clientes WiFi.", "success");
     showView("devices");
     renderDevices();
   } catch (error) {
@@ -421,6 +549,91 @@ async function runScan() {
   } finally {
     startScan.disabled = false;
     startScan.textContent = "Iniciar escaneo";
+  }
+}
+
+/**
+ * Carga el catalogo de perfiles de control parental con su estado actual.
+ */
+async function loadSiteProfiles() {
+  siteGrid.innerHTML = `
+    <article class="site-card skeleton">
+      <div class="site-brand">
+        <span class="site-mark">CP</span>
+        <div>
+          <h3>Cargando perfiles</h3>
+          <span>Control parental</span>
+        </div>
+      </div>
+    </article>
+  `;
+
+  const mac = siteScopeMac.value.trim();
+  const query = mac ? `?mac=${encodeURIComponent(mac)}` : "";
+
+  try {
+    const data = await apiRequest(`/api/parental/sites${query}`);
+    siteProfiles = data.profiles || [];
+    parentalLoaded = true;
+
+    if (data.source === "catalog") {
+      setBoxNotice(parentalNotice, `No se pudo leer el router: ${data.warning}`, "warning");
+    } else {
+      setBoxNotice(parentalNotice, "");
+    }
+
+    renderSiteProfiles();
+  } catch (error) {
+    siteProfiles = [];
+    parentalLoaded = false;
+    setBoxNotice(parentalNotice, error.message, "warning");
+    renderSiteProfiles();
+  }
+}
+
+/**
+ * Bloquea o desbloquea un perfil de control parental.
+ *
+ * @param {string} profileId Identificador del perfil.
+ * @param {string} action Accion solicitada: `block` o `unblock`.
+ */
+async function applySiteAction(profileId, action) {
+  const path = action === "block" ? "/api/parental/block" : "/api/parental/unblock";
+  const button = Array.from(document.querySelectorAll(`[data-site-action="${action}"]`))
+    .find((element) => element.dataset.profileId === profileId);
+  const originalHtml = button ? button.innerHTML : "";
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = action === "block" ? "Bloqueando..." : "Desbloqueando...";
+  }
+
+  setBoxNotice(parentalNotice, "Aplicando cambios en el router...");
+
+  try {
+    const data = await apiRequest(path, {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        mac: siteScopeMac.value.trim(),
+        hardening: siteHardening.checked,
+      }),
+    });
+    siteProfiles = data.profiles || [];
+    parentalLoaded = true;
+    setBoxNotice(
+      parentalNotice,
+      data.warning ? `${data.message} No se pudo confirmar el estado: ${data.warning}` : data.message || "Control parental actualizado.",
+      data.warning ? "warning" : "success",
+    );
+    renderSiteProfiles();
+  } catch (error) {
+    setBoxNotice(parentalNotice, error.message, "warning");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = originalHtml || (action === "block" ? "Bloquear" : "Desbloquear");
+    }
   }
 }
 
@@ -534,6 +747,13 @@ quickLinks.forEach((button) => {
 
 // Delegacion global de clics para botones creados dinamicamente.
 document.addEventListener("click", (event) => {
+  const siteActionButton = event.target.closest("[data-site-action]");
+
+  if (siteActionButton) {
+    applySiteAction(siteActionButton.dataset.profileId, siteActionButton.dataset.siteAction);
+    return;
+  }
+
   const actionButton = event.target.closest("[data-action]");
 
   if (actionButton) {
@@ -554,6 +774,12 @@ deviceTypeFilter.addEventListener("change", renderDevices);
 refreshDevices.addEventListener("click", loadDevices);
 saveGuest.addEventListener("click", updateGuestConfig);
 startScan.addEventListener("click", runScan);
+refreshParentalSites.addEventListener("click", loadSiteProfiles);
+
+siteScopeMac.addEventListener("change", () => {
+  parentalLoaded = false;
+  loadSiteProfiles();
+});
 
 document.getElementById("scanNow").addEventListener("click", () => {
   showView("scan");

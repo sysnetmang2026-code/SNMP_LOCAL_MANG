@@ -66,8 +66,11 @@ Opciones agregadas:
 - `10. Control parental: desbloquear sitios o juegos`
 
 La opcion 9 permite elegir perfiles para Facebook/Messenger, YouTube, Free Fire,
-Clash Royale/Supercell o dominios personalizados. Todas las reglas nuevas se
-crean con protocolo `BOTH` para cubrir trafico TCP y UDP.
+Clash Royale/Supercell o dominios personalizados. El panel web agrega una vista
+de tarjetas para YouTube, Facebook, Instagram, TikTok, X, Threads, Reddit, Free
+Fire, Roblox, EA FC Mobile, Clash Royale, Clash of Clans, Brawl Stars, Call of
+Duty Mobile y PUBG Mobile. Todas las reglas nuevas se crean con protocolo
+`BOTH` para cubrir trafico TCP y UDP.
 
 La opcion 10 usa los mismos perfiles para eliminar reglas `Denegar` que coincidan
 con el dominio y la MAC indicada. Si se deja la MAC vacia, solo elimina reglas
