@@ -230,6 +230,28 @@ function siteStateLabel(state) {
 }
 
 /**
+ * Renderiza el icono visible de un perfil, con texto de respaldo.
+ *
+ * @param {object} profile Perfil recibido desde la API.
+ * @returns {string} Marcado HTML seguro.
+ */
+function siteMark(profile) {
+  const theme = profile.theme || "default";
+  const icon = profile.icon || "";
+  const className = `site-mark site-${escapeHtml(theme)}${icon ? " has-icon" : ""}`;
+
+  if (icon) {
+    return `
+      <span class="${className}">
+        <img src="${escapeHtml(icon)}" alt="" aria-hidden="true" loading="lazy">
+      </span>
+    `;
+  }
+
+  return `<span class="${className}">${escapeHtml(profile.short)}</span>`;
+}
+
+/**
  * Renderiza una tarjeta de bloqueo para un perfil de sitio o juego.
  *
  * @param {object} profile Perfil recibido desde la API.
@@ -237,12 +259,11 @@ function siteStateLabel(state) {
  */
 function siteCard(profile) {
   const state = profile.state || "available";
-  const theme = profile.theme || "default";
 
   return `
     <article class="site-card ${state === "blocked" ? "is-blocked" : ""}">
       <div class="site-brand">
-        <span class="site-mark site-${escapeHtml(theme)}">${escapeHtml(profile.short)}</span>
+        ${siteMark(profile)}
         <div>
           <h3>${escapeHtml(profile.name)}</h3>
           <span>${escapeHtml(profile.category)}</span>

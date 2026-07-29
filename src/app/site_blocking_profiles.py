@@ -9,6 +9,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Video",
         "description": "Bloqueo YouTube",
         "theme": "youtube",
+        "icon": "assets/icons/youtube.svg",
         "domains": (
             "youtube",
             "youtube.com",
@@ -33,6 +34,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Social",
         "description": "Bloqueo Facebook",
         "theme": "facebook",
+        "icon": "assets/icons/facebook.svg",
         "domains": (
             "facebook",
             "facebook.com",
@@ -65,6 +67,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Social",
         "description": "Bloqueo Instagram",
         "theme": "instagram",
+        "icon": "assets/icons/instagram.svg",
         "domains": (
             "instagram",
             "instagram.com",
@@ -85,6 +88,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Social",
         "description": "Bloqueo TikTok",
         "theme": "tiktok",
+        "icon": "assets/icons/tiktok.svg",
         "domains": (
             "tiktok",
             "tiktok.com",
@@ -106,6 +110,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Social",
         "description": "Bloqueo X",
         "theme": "x",
+        "icon": "assets/icons/x.svg",
         "domains": (
             "x.com",
             "www.x.com",
@@ -127,6 +132,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Social",
         "description": "Bloqueo Threads",
         "theme": "threads",
+        "icon": "assets/icons/threads.webp",
         "domains": (
             "threads",
             "threads.net",
@@ -143,6 +149,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Social",
         "description": "Bloqueo Reddit",
         "theme": "reddit",
+        "icon": "assets/icons/reddit.svg",
         "domains": (
             "reddit",
             "reddit.com",
@@ -163,6 +170,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo Free Fire",
         "theme": "freefire",
+        "icon": "assets/icons/free-fire.svg",
         "domains": (
             "freefire",
             "freefiremobile.com",
@@ -180,6 +188,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo Roblox",
         "theme": "roblox",
+        "icon": "assets/icons/roblox.webp",
         "domains": (
             "roblox",
             "roblox.com",
@@ -199,6 +208,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo EA FC Mobile",
         "theme": "eafc",
+        "icon": "assets/icons/ea-fc-mobile.webp",
         "domains": (
             "easports",
             "easports.com",
@@ -215,6 +225,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo Clash Royale",
         "theme": "clashroyale",
+        "icon": "assets/icons/clash-royale.svg",
         "domains": (
             "clashroyale",
             "clashroyale.com",
@@ -232,6 +243,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo Clash of Clans",
         "theme": "clashclans",
+        "icon": "assets/icons/clash-of-clans.svg",
         "domains": (
             "clashofclans",
             "clashofclans.com",
@@ -248,6 +260,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo Brawl Stars",
         "theme": "brawlstars",
+        "icon": "assets/icons/brawl-stars.svg",
         "domains": (
             "brawlstars",
             "brawlstars.com",
@@ -264,6 +277,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo Call of Duty Mobile",
         "theme": "codmobile",
+        "icon": "assets/icons/call-of-duty-mobile.svg",
         "domains": (
             "callofduty",
             "callofduty.com",
@@ -282,6 +296,7 @@ SITE_BLOCKING_PROFILES = (
         "category": "Juego",
         "description": "Bloqueo PUBG Mobile",
         "theme": "pubg",
+        "icon": "assets/icons/pubg-mobile.svg",
         "domains": (
             "pubgmobile",
             "pubgmobile.com",

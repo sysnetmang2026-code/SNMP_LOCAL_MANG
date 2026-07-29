@@ -200,6 +200,26 @@ def _parental_rule_matches_mac(rule, mac):
     return normalize_mac(rule.get("mac", "")) == normalize_mac(mac or "")
 
 
+def public_error_message(error):
+    """Convierte errores tecnicos del router en mensajes seguros para la UI."""
+
+    message = str(error)
+
+    if "HTTPConnectionPool" in message or "WinError 10013" in message:
+        return (
+            "No se pudo conectar con el router 192.168.1.1. "
+            "Revise que el router este accesible y que Python tenga permiso de red local."
+        )
+
+    if "timed out" in message.lower() or "timeout" in message.lower():
+        return "El router tardo demasiado en responder. Intente actualizar en unos segundos."
+
+    if "401" in message:
+        return "El router rechazo las credenciales. Revise usuario y contrasena."
+
+    return message
+
+
 def _site_profile_response(profile, rules=None, mac=""):
     """Convierte un perfil de bloqueo al contrato usado por el frontend."""
 
@@ -227,6 +247,7 @@ def _site_profile_response(profile, rules=None, mac=""):
         "category": profile["category"],
         "description": profile["description"],
         "theme": profile["theme"],
+        "icon": profile.get("icon", ""),
         "domains_count": len(domains),
         "blocked_count": blocked_count,
         "state": state,
@@ -313,7 +334,7 @@ class WebHandler(BaseHTTPRequestHandler):
 
             self.respond_json({"ok": False, "error": "Ruta no encontrada."}, status=404)
         except Exception as error:
-            self.respond_json({"ok": False, "error": str(error)}, status=500)
+            self.respond_json({"ok": False, "error": public_error_message(error)}, status=500)
 
     def handle_devices(self):
         """Responde con clientes WiFi y dispositivos detectados por Nmap."""
@@ -347,7 +368,7 @@ class WebHandler(BaseHTTPRequestHandler):
             self.respond_json({
                 "ok": True,
                 "source": "database",
-                "warning": str(error),
+                "warning": public_error_message(error),
                 "devices": scanned,
                 "blocked_macs": [],
             })
@@ -402,7 +423,7 @@ class WebHandler(BaseHTTPRequestHandler):
                 "profiles": site_profiles_response(mac=mac),
                 "mac": mac,
                 "source": "catalog",
-                "warning": str(error),
+                "warning": public_error_message(error),
             })
 
     def handle_save_alias(self):
@@ -508,7 +529,7 @@ class WebHandler(BaseHTTPRequestHandler):
             rules = router.obtener_reglas_control_parental()
         except Exception as error:
             rules = []
-            warning = str(error)
+            warning = public_error_message(error)
 
         response = {
             "ok": True,

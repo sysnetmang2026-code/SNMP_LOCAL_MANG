@@ -1007,6 +1007,50 @@ th {
   box-shadow: 0 12px 18px rgba(15, 23, 42, 0.16);
 }
 
+.site-mark.has-icon {
+  overflow: hidden;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.site-mark.has-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.site-eafc.has-icon,
+.site-threads.has-icon,
+.site-roblox.has-icon,
+.site-clashroyale.has-icon,
+.site-clashclans.has-icon,
+.site-brawlstars.has-icon,
+.site-codmobile.has-icon,
+.site-pubg.has-icon {
+  padding: 0;
+}
+
+.site-eafc.has-icon img,
+.site-threads.has-icon img,
+.site-roblox.has-icon img,
+.site-clashroyale.has-icon img,
+.site-clashclans.has-icon img,
+.site-brawlstars.has-icon img,
+.site-codmobile.has-icon img,
+.site-pubg.has-icon img {
+  object-fit: cover;
+}
+
+.site-freefire.has-icon {
+  width: 58px;
+  padding: 0;
+}
+
+.site-roblox.has-icon {
+  background: #f8fafc;
+}
+
 .site-youtube {
   background: #ff0000;
 }
@@ -1457,6 +1501,10 @@ th {
     width: 48px;
     height: 48px;
     font-size: 15px;
+  }
+
+  .site-freefire.has-icon {
+    width: 48px;
   }
 
   .site-brand h3 {

@@ -21,6 +21,9 @@ src/
 data/
   red.db               Base de datos local
   oui.json             Referencia OUI para fabricantes por MAC
+
+view/assets/icons/
+  *.svg                Iconos reales de perfiles del control parental
 ```
 
 ## Router KAON

@@ -189,6 +189,13 @@ Controlador del panel. Gestiona navegacion entre vistas, estado en memoria,
 llamadas `fetch` a `/api/`, renderizado seguro de tarjetas, filtros de busqueda,
 red de invitados, escaneo Nmap y modal de acciones por dispositivo.
 
+### `view/assets/icons/`
+
+Carpeta de iconos reales usados por la vista de control parental. Los perfiles
+web pueden declarar la ruta en `src/app/site_blocking_profiles.py` mediante el
+campo `icon`; si un perfil no tiene icono, el panel conserva sus iniciales como
+respaldo visual.
+
 ## Pruebas y utilidades SNMP
 
 ### `test/Menu.py`
