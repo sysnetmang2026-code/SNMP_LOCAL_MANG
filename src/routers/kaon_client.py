@@ -166,11 +166,39 @@ class KaonRouterClient:
 
         return f"{self.router_url}/goform/RgFiltering"
 
-    def obtener_pagina_acceso(self, band=None):
-        """Obtiene el HTML de la pantalla de control de acceso MAC."""
+    def obtener_pagina_acceso(self, band=None, network_index=None):
+        """Obtiene la pantalla de acceso para una banda e interfaz WiFi."""
 
         if band is not None:
             self.seleccionar_banda_wifi(band)
+
+        html = self._get_autenticado(self.access_url)
+
+        if network_index is None:
+            return html
+
+        soup = BeautifulSoup(html, "html.parser")
+        network_select = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+        selected_index = self._valor_select(network_select) if network_select else "0"
+        target_index = str(network_index)
+
+        if selected_index == target_index:
+            return html
+
+        payload = self._obtener_payload_formulario(
+            html,
+            "wlanAccess",
+            "acceso WiFi",
+        )
+        payload["wlanAccessMbssIndexChanged"] = "1"
+        payload["wlanAccessCurrentNetworks"] = target_index
+        payload["commitwlanAccess"] = "0"
+        response = self._post_autenticado(self.access_form_url, payload)
+
+        if response.status_code not in (200, 302):
+            raise RuntimeError(
+                f"El router no permitio seleccionar la interfaz WiFi: HTTP {response.status_code}"
+            )
 
         return self._get_autenticado(self.access_url)
 
@@ -230,16 +258,70 @@ class KaonRouterClient:
 
         return response
 
-    def listar_clientes_banda(self, band="2.4"):
-        """Extrae clientes conectados de la banda activa en `wlanAccess.asp`."""
+    def _interfaces_acceso(self, html):
+        """Lista las interfaces principal e invitadas visibles en el formulario."""
+
+        soup = BeautifulSoup(html, "html.parser")
+        network_select = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+
+        if not network_select:
+            return [{"index": "0", "ssid": "", "guest": False}]
+
+        interfaces = []
+
+        for option in network_select.find_all("option"):
+            index = str(option.get("value", "0")).strip()
+            direct_text = option.find(string=True, recursive=False)
+            label = str(direct_text or "").strip()
+            ssid = label.rsplit(" (", 1)[0].strip()
+            interfaces.append({
+                "index": index,
+                "ssid": ssid,
+                "guest": index != "0",
+            })
+
+        return interfaces or [{"index": "0", "ssid": "", "guest": False}]
+
+    def listar_interfaces_banda(self, band="2.4"):
+        """Devuelve las interfaces WiFi disponibles en una banda."""
 
         band = self._normalizar_banda(band)
-        soup = BeautifulSoup(self.obtener_pagina_acceso(band=band), "html.parser")
+        return self._interfaces_acceso(self.obtener_pagina_acceso(band=band))
+
+    def listar_clientes_banda(
+        self,
+        band="2.4",
+        network_index=0,
+        network_name="",
+        guest=False,
+    ):
+        """Extrae clientes de una interfaz principal o invitada de la banda."""
+
+        band = self._normalizar_banda(band)
+        network_index = str(network_index)
+        html = self.obtener_pagina_acceso(
+            band=band,
+            network_index=network_index,
+        )
+        soup = BeautifulSoup(html, "html.parser")
         table = soup.find("table", {"class": "ListTypeA"})
 
         if not table:
             return []
 
+        if not network_name:
+            selected = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+            selected_option = selected.find("option", selected=True) if selected else None
+            direct_text = (
+                selected_option.find(string=True, recursive=False)
+                if selected_option
+                else ""
+            )
+            label = str(direct_text or "").strip()
+            network_name = label.rsplit(" (", 1)[0].strip()
+
+        guest = bool(guest or network_index != "0")
+        network_label = f"Invitados {band} GHz" if guest else f"WiFi {band} GHz"
         clients = []
 
         for row in table.find_all("tr")[1:]:
@@ -257,26 +339,43 @@ class KaonRouterClient:
                 "modo": columns[5].get_text(strip=True),
                 "velocidad": columns[6].get_text(strip=True),
                 "band": band,
-                "network": f"WiFi {band} GHz",
+                "network": network_label,
+                "network_index": network_index,
+                "ssid": network_name,
+                "guest": guest,
             })
 
         return clients
 
     def listar_clientes_todas_las_bandas(self):
-        """Lista clientes visibles en las bandas WiFi soportadas por el router."""
+        """Lista clientes de redes principales e invitadas en todas las bandas."""
 
         clients = []
-        successful_bands = 0
+        successful_networks = 0
         errors = []
 
         for band in BAND_URLS:
             try:
-                clients.extend(self.listar_clientes_banda(band))
-                successful_bands += 1
+                interfaces = self.listar_interfaces_banda(band)
             except Exception as error:
                 errors.append(f"{band} GHz: {error}")
+                continue
 
-        if successful_bands == 0 and errors:
+            for interface in interfaces:
+                try:
+                    clients.extend(self.listar_clientes_banda(
+                        band=band,
+                        network_index=interface["index"],
+                        network_name=interface["ssid"],
+                        guest=interface["guest"],
+                    ))
+                    successful_networks += 1
+                except Exception as error:
+                    errors.append(
+                        f"{band} GHz/{interface['ssid'] or interface['index']}: {error}"
+                    )
+
+        if successful_networks == 0 and errors:
             raise RuntimeError(
                 "No se pudieron leer clientes WiFi: " + "; ".join(errors)
             )
@@ -286,12 +385,18 @@ class KaonRouterClient:
     def listar_clientes_24ghz(self):
         """Extrae la tabla de clientes conectados de la banda 2.4 GHz."""
 
-        return self.listar_clientes_banda("2.4")
+        return self.listar_clientes_banda("2.4", network_index=0)
 
-    def obtener_macs_bloqueadas(self, band=None):
+    def obtener_macs_bloqueadas(self, band=None, network_index=0):
         """Lee las MAC cargadas en los campos `WirelessMac01..20`."""
 
-        soup = BeautifulSoup(self.obtener_pagina_acceso(band=band), "html.parser")
+        soup = BeautifulSoup(
+            self.obtener_pagina_acceso(
+                band=band,
+                network_index=network_index,
+            ),
+            "html.parser",
+        )
         blocked_macs = []
 
         for field_name in WIRELESS_MAC_FIELDS:
@@ -304,27 +409,39 @@ class KaonRouterClient:
         return blocked_macs
 
     def obtener_macs_bloqueadas_todas_las_bandas(self):
-        """Lee la union de MAC bloqueadas en todas las bandas WiFi."""
+        """Lee la union de bloqueos en redes principales e invitadas."""
 
         blocked_macs = set()
-        successful_bands = 0
+        successful_networks = 0
         errors = []
 
         for band in BAND_URLS:
             try:
-                blocked_macs.update(self.obtener_macs_bloqueadas(band=band))
-                successful_bands += 1
+                interfaces = self.listar_interfaces_banda(band)
             except Exception as error:
                 errors.append(f"{band} GHz: {error}")
+                continue
 
-        if successful_bands == 0 and errors:
+            for interface in interfaces:
+                try:
+                    blocked_macs.update(self.obtener_macs_bloqueadas(
+                        band=band,
+                        network_index=interface["index"],
+                    ))
+                    successful_networks += 1
+                except Exception as error:
+                    errors.append(
+                        f"{band} GHz/{interface['ssid'] or interface['index']}: {error}"
+                    )
+
+        if successful_networks == 0 and errors:
             raise RuntimeError(
                 "No se pudieron leer MAC bloqueadas: " + "; ".join(errors)
             )
 
         return sorted(blocked_macs)
 
-    def bloquear_mac(self, mac, network_index=0):
+    def bloquear_mac(self, mac, network_index=0, band=None):
         """Agrega una MAC al filtro de denegacion del router."""
 
         mac = normalize_mac(mac)
@@ -332,7 +449,10 @@ class KaonRouterClient:
         if not is_valid_mac(mac):
             raise ValueError("La direccion MAC no es valida.")
 
-        blocked_macs = self.obtener_macs_bloqueadas()
+        blocked_macs = self.obtener_macs_bloqueadas(
+            band=band,
+            network_index=network_index,
+        )
 
         if mac not in blocked_macs:
             blocked_macs.append(mac)
@@ -340,9 +460,13 @@ class KaonRouterClient:
         if len(blocked_macs) > len(WIRELESS_MAC_FIELDS):
             raise ValueError("El router solo permite hasta 20 MAC en esta pantalla.")
 
-        return self.aplicar_lista_bloqueo(blocked_macs, network_index=network_index)
+        return self.aplicar_lista_bloqueo(
+            blocked_macs,
+            network_index=network_index,
+            band=band,
+        )
 
-    def desbloquear_mac(self, mac, network_index=0):
+    def desbloquear_mac(self, mac, network_index=0, band=None):
         """Elimina una MAC del filtro de denegacion del router."""
 
         mac = normalize_mac(mac)
@@ -352,14 +476,27 @@ class KaonRouterClient:
 
         blocked_macs = [
             blocked_mac
-            for blocked_mac in self.obtener_macs_bloqueadas()
+            for blocked_mac in self.obtener_macs_bloqueadas(
+                band=band,
+                network_index=network_index,
+            )
             if blocked_mac != mac
         ]
 
-        return self.aplicar_lista_bloqueo(blocked_macs, network_index=network_index)
+        return self.aplicar_lista_bloqueo(
+            blocked_macs,
+            network_index=network_index,
+            band=band,
+        )
 
-    def aplicar_lista_bloqueo(self, blocked_macs, network_index=0):
+    def aplicar_lista_bloqueo(self, blocked_macs, network_index=0, band=None):
         """Aplica la lista completa de MAC bloqueadas en el formulario KAON."""
+
+        if band is not None:
+            self.obtener_pagina_acceso(
+                band=band,
+                network_index=network_index,
+            )
 
         blocked_macs = [normalize_mac(mac) for mac in blocked_macs if mac]
         payload = {
@@ -383,7 +520,11 @@ class KaonRouterClient:
         except requests.RequestException as error:
             self._reiniciar_sesion()
 
-            if self._lista_bloqueo_fue_aplicada(blocked_macs):
+            if self._lista_bloqueo_fue_aplicada(
+                blocked_macs,
+                band=band,
+                network_index=network_index,
+            ):
                 return True
 
             if isinstance(error, (Timeout, requests.ConnectionError)):
@@ -396,13 +537,75 @@ class KaonRouterClient:
 
         return True
 
-    def _lista_bloqueo_fue_aplicada(self, expected_macs):
+    def _cambiar_bloqueo_todas_las_redes(self, mac, blocked):
+        """Aplica un bloqueo o desbloqueo en interfaces principales e invitadas."""
+
+        successful_networks = 0
+        errors = []
+
+        for band in BAND_URLS:
+            try:
+                interfaces = self.listar_interfaces_banda(band)
+            except Exception as error:
+                errors.append(f"{band} GHz: {error}")
+                continue
+
+            for interface in interfaces:
+                try:
+                    if blocked:
+                        self.bloquear_mac(
+                            mac,
+                            band=band,
+                            network_index=interface["index"],
+                        )
+                    else:
+                        self.desbloquear_mac(
+                            mac,
+                            band=band,
+                            network_index=interface["index"],
+                        )
+                    successful_networks += 1
+                except Exception as error:
+                    errors.append(
+                        f"{band} GHz/{interface['ssid'] or interface['index']}: {error}"
+                    )
+
+        if successful_networks == 0 and errors:
+            action = "bloquear" if blocked else "desbloquear"
+            raise RuntimeError(
+                f"No se pudo {action} el usuario: " + "; ".join(errors)
+            )
+
+        return {
+            "success_count": successful_networks,
+            "errors": errors,
+        }
+
+    def bloquear_mac_todas_las_redes(self, mac):
+        """Bloquea una MAC en redes principales e invitadas."""
+
+        return self._cambiar_bloqueo_todas_las_redes(mac, blocked=True)
+
+    def desbloquear_mac_todas_las_redes(self, mac):
+        """Desbloquea una MAC en redes principales e invitadas."""
+
+        return self._cambiar_bloqueo_todas_las_redes(mac, blocked=False)
+
+    def _lista_bloqueo_fue_aplicada(
+        self,
+        expected_macs,
+        band=None,
+        network_index=0,
+    ):
         """Verifica si el router ya refleja la lista de bloqueo esperada."""
 
         time.sleep(1)
 
         try:
-            current_macs = self.obtener_macs_bloqueadas()
+            current_macs = self.obtener_macs_bloqueadas(
+                band=band,
+                network_index=network_index,
+            )
         except requests.RequestException:
             return False
 

@@ -16,9 +16,15 @@ URL_KEYWORD_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,253}[A-Za-z0-9]$"
 
 
 def normalize_mac(mac):
-    """Devuelve una MAC sin espacios laterales y en mayusculas."""
+    """Devuelve una MAC canonica `AA:BB:CC:DD:EE:FF` cuando es posible."""
 
-    return mac.strip().upper()
+    value = str(mac or "").strip().upper().replace("-", ":")
+    compact = re.sub(r"[^0-9A-F]", "", value)
+
+    if len(compact) == 12:
+        return ":".join(compact[index:index + 2] for index in range(0, 12, 2))
+
+    return value
 
 
 def is_valid_mac(mac):

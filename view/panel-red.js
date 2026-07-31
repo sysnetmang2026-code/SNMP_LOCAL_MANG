@@ -3,7 +3,7 @@
  *
  * Este script coordina navegacion entre vistas, renderizado de dispositivos,
  * consumo de la API local, configuracion de red de invitados, escaneo Nmap y
- * acciones modales para renombrar, bloquear o desbloquear equipos.
+ * acciones modales para renombrar, bloquear, desbloquear u olvidar equipos.
  */
 
 // Referencias DOM usadas por las vistas principales del panel.
@@ -14,7 +14,32 @@ const deviceGrid = document.getElementById("deviceGrid");
 const deviceNotice = document.getElementById("deviceNotice");
 const deviceSearch = document.getElementById("deviceSearch");
 const deviceTypeFilter = document.getElementById("deviceTypeFilter");
+const deviceStatusFilter = document.getElementById("deviceStatusFilter");
 const refreshDevices = document.getElementById("refreshDevices");
+const autoRefreshDevices = document.getElementById("autoRefreshDevices");
+const deviceFreshness = document.getElementById("deviceFreshness");
+const dashboardFreshness = document.getElementById("dashboardFreshness");
+const metricConnected = document.getElementById("metricConnected");
+const metricNewToday = document.getElementById("metricNewToday");
+const metricBlocked = document.getElementById("metricBlocked");
+const metricBlockedDetail = document.getElementById("metricBlockedDetail");
+const metricGuestState = document.getElementById("metricGuestState");
+const metricGuestSsid = document.getElementById("metricGuestSsid");
+const metricSignal = document.getElementById("metricSignal");
+const metricSignalDetail = document.getElementById("metricSignalDetail");
+const activityList = document.getElementById("activityList");
+const deviceHistory = document.getElementById("deviceHistory");
+const clearDeviceHistory = document.getElementById("clearDeviceHistory");
+const routerStatusCard = document.getElementById("routerStatusCard");
+const routerStatusDot = document.getElementById("routerStatusDot");
+const routerStatusText = document.getElementById("routerStatusText");
+const routerStatusAddress = document.getElementById("routerStatusAddress");
+const accessNotice = document.getElementById("accessNotice");
+const accessDeviceSelect = document.getElementById("accessDeviceSelect");
+const accessDeviceHelp = document.getElementById("accessDeviceHelp");
+const blockSelectedUser = document.getElementById("blockSelectedUser");
+const blockedUsersCount = document.getElementById("blockedUsersCount");
+const blockedUsersList = document.getElementById("blockedUsersList");
 const guestNotice = document.getElementById("guestNotice");
 const guestEnabled = document.getElementById("guestEnabled");
 const guestSsid = document.getElementById("guestSsid");
@@ -22,6 +47,14 @@ const guestPassword = document.getElementById("guestPassword");
 const saveGuest = document.getElementById("saveGuest");
 const scanNotice = document.getElementById("scanNotice");
 const startScan = document.getElementById("startScan");
+const networkRadar = document.getElementById("networkRadar");
+const radarPoints = document.getElementById("radarPoints");
+const radarStatus = document.getElementById("radarStatus");
+const radarCount = document.getElementById("radarCount");
+const scanRange = document.getElementById("scanRange");
+const scanState = document.getElementById("scanState");
+const scanDeviceCount = document.getElementById("scanDeviceCount");
+const scanProgress = document.getElementById("scanProgress");
 const parentalNotice = document.getElementById("parentalNotice");
 const siteGrid = document.getElementById("siteGrid");
 const siteScopeMac = document.getElementById("siteScopeMac");
@@ -35,43 +68,22 @@ const aliasInput = document.getElementById("aliasInput");
 const modalConfirm = document.getElementById("modalConfirm");
 const closeModalButtons = document.querySelectorAll(".modal-close, .modal-cancel");
 
-// Datos de respaldo para mostrar una experiencia demo si no hay servidor Python.
-const sampleDevices = [
-  {
-    mac: "0A:75:2A:6C:18:8B",
-    name: "S23-FE-de-John-Steven",
-    hostname: "S23-FE-de-John-Steven",
-    type: "phone",
-    ip: "192.168.1.29",
-    rssi: "-75",
-    blocked: false,
-  },
-  {
-    mac: "E4:5E:37:C4:C1:7E",
-    name: "DESKTOP-LJI5CB9",
-    hostname: "DESKTOP-LJI5CB9",
-    type: "pc",
-    ip: "192.168.1.30",
-    rssi: "-61",
-    blocked: false,
-  },
-  {
-    mac: "82:80:D5:C7:D8:A0",
-    name: "43RCARokuTV",
-    hostname: "43RCARokuTV",
-    type: "tv",
-    ip: "192.168.1.15",
-    rssi: "-77",
-    blocked: false,
-  },
-];
-
 // Estado de cliente mantenido en memoria durante la sesion del navegador.
 let devices = [];
+let deviceHistoryItems = [];
+let blockedMacs = [];
 let siteProfiles = [];
 let pendingAction = null;
 let guestLoaded = false;
 let parentalLoaded = false;
+let devicesLoading = false;
+let autoRefreshEnabled = true;
+let deviceRefreshTimer = null;
+let lastDevicePayload = null;
+let hasBlockedSnapshot = false;
+let radarRevealTimer = null;
+
+const DEVICE_REFRESH_INTERVAL_MS = 10000;
 
 /**
  * Activa una vista del panel y carga datos diferidos cuando corresponde.
@@ -89,6 +101,10 @@ function showView(viewId) {
 
   if (viewId === "devices" && devices.length === 0) {
     loadDevices();
+  }
+
+  if (viewId === "access") {
+    renderAccessControls();
   }
 
   if (viewId === "guest" && !guestLoaded) {
@@ -113,6 +129,51 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+/**
+ * Convierte fechas ISO de la API a una lectura corta local.
+ *
+ * @param {string} value Fecha ISO.
+ * @returns {string} Fecha visible o texto de respaldo.
+ */
+function formatTimestamp(value) {
+  if (!value) {
+    return "sin registro";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("es-NI", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+/**
+ * Indica si una fecha ISO pertenece al dia local actual.
+ *
+ * @param {string} value Fecha ISO.
+ * @returns {boolean} Verdadero si ocurre hoy.
+ */
+function isToday(value) {
+  if (!value) {
+    return false;
+  }
+
+  const date = new Date(value);
+  const now = new Date();
+
+  return (
+    !Number.isNaN(date.getTime())
+    && date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate()
+  );
 }
 
 /**
@@ -160,12 +221,12 @@ function setBoxNotice(element, message, type = "info") {
  */
 function deviceTypeLabel(type) {
   const labels = {
-    phone: "Celular conectado",
-    pc: "Computadora conectada",
-    tv: "Televisor conectado",
-    camera: "Camara WiFi conectada",
-    printer: "Impresora conectada",
-    unknown: "Dispositivo conectado",
+    phone: "Celular",
+    pc: "Computadora",
+    tv: "Televisor",
+    camera: "Camara WiFi",
+    printer: "Impresora",
+    unknown: "Dispositivo",
   };
 
   return labels[type] || labels.unknown;
@@ -180,12 +241,20 @@ function deviceTypeLabel(type) {
 function deviceSourceLabel(device) {
   const network = device.network || (device.band ? `WiFi ${device.band} GHz` : "");
 
+  if (device.source && device.source.includes("+ping")) {
+    return "Activo por ping";
+  }
+
   if (device.source === "database") {
-    return "Nmap";
+    return device.connected ? "Escaneo local + ping" : "Historial local";
+  }
+
+  if (device.source === "history") {
+    return "Historial";
   }
 
   if (device.source === "router+nmap") {
-    return `${network || "Router"} + Nmap`;
+    return `${network || "Router"} + escaneo`;
   }
 
   return network || "Router";
@@ -202,15 +271,97 @@ function deviceStatusText(device) {
     return "Bloqueado";
   }
 
-  if (device.source === "database") {
-    return "Escaneado por Nmap";
+  if (device.connected && device.source && device.source.includes("+ping")) {
+    return "Activo por ping local";
   }
 
-  if (device.source === "router+nmap") {
-    return "Conectado y detectado por Nmap";
+  if (device.connected && device.source === "database") {
+    return "Activo por escaneo/ping";
   }
 
-  return "Conectado";
+  if (device.connected && device.source === "router+nmap") {
+    return "Conectado y detectado por el escaneo";
+  }
+
+  if (device.connected) {
+    return `Conectado${device.network ? ` en ${device.network}` : ""}`;
+  }
+
+  return `Desconectado. Ultima vez: ${formatTimestamp(device.last_seen)}`;
+}
+
+/**
+ * Convierte el RSSI del router en un estado comprensible sin mostrar decibeles.
+ *
+ * @param {object} device Dispositivo recibido desde la API.
+ * @returns {{key: string, label: string, level: number, measured: boolean}}
+ */
+function deviceSignal(device) {
+  if (!device.connected) {
+    return { key: "offline", label: "Sin conexion", level: 0, measured: false };
+  }
+
+  const rawRssi = String(device.rssi ?? "").replace(",", ".");
+  const rssi = Number.parseFloat(rawRssi);
+
+  if (!Number.isFinite(rssi) || rssi >= 0) {
+    return { key: "unknown", label: "Sin medicion", level: 0, measured: false };
+  }
+
+  if (rssi >= -55) {
+    return { key: "very-good", label: "Muy buena", level: 4, measured: true };
+  }
+
+  if (rssi >= -67) {
+    return { key: "good", label: "Buena", level: 3, measured: true };
+  }
+
+  if (rssi >= -75) {
+    return { key: "low", label: "Baja", level: 2, measured: true };
+  }
+
+  return { key: "very-low", label: "Muy mala", level: 1, measured: true };
+}
+
+/**
+ * Dibuja un icono WiFi cuyas ondas activas dependen del nivel recibido.
+ *
+ * @param {{key: string, label: string, level: number}} signal Estado cualitativo.
+ * @returns {string} Marcado controlado por la aplicacion.
+ */
+function wifiSignalIcon(signal) {
+  return `
+    <svg class="wifi-signal-icon level-${signal.level} ${signal.key}" viewBox="0 0 24 24" aria-hidden="true">
+      <path class="wifi-wave wave-4" d="M2 8.8a15.4 15.4 0 0 1 20 0"></path>
+      <path class="wifi-wave wave-3" d="M5.2 12.1a10.5 10.5 0 0 1 13.6 0"></path>
+      <path class="wifi-wave wave-2" d="M8.4 15.4a5.6 5.6 0 0 1 7.2 0"></path>
+      <circle class="wifi-wave wave-1" cx="12" cy="19" r="1.25"></circle>
+    </svg>
+  `;
+}
+
+/**
+ * Devuelve la senal medida mas baja entre los dispositivos conectados.
+ *
+ * @returns {{key: string, label: string, level: number, measured: boolean}}
+ */
+function dashboardSignal() {
+  const measured = devices
+    .filter((device) => device.connected)
+    .map(deviceSignal)
+    .filter((signal) => signal.measured)
+    .sort((left, right) => left.level - right.level);
+
+  if (measured.length > 0) {
+    return measured[0];
+  }
+
+  return {
+    key: "unknown",
+    label: "Sin medicion",
+    level: 0,
+    measured: false,
+  };
 }
 
 /**
@@ -367,6 +518,10 @@ function actionCopy(action, device) {
     return "Este boton solo cambia el nombre que usted ve en este panel. No cambia el nombre real del equipo.";
   }
 
+  if (action === "forget") {
+    return "Borra el nombre guardado y el historial local de este equipo. Si sigue conectado, volvera a aparecer.";
+  }
+
   if (device.blocked) {
     return "Este boton permite que el dispositivo vuelva a conectarse al WiFi.";
   }
@@ -382,11 +537,15 @@ function actionCopy(action, device) {
 function filteredDevices() {
   const query = deviceSearch.value.trim().toLowerCase();
   const type = deviceTypeFilter.value;
+  const status = deviceStatusFilter.value;
 
   return devices.filter((device) => {
-    const matchesQuery = !query || `${device.name} ${device.hostname} ${device.ip}`.toLowerCase().includes(query);
+    const haystack = `${device.name} ${device.hostname} ${device.ip} ${device.mac} ${device.network}`.toLowerCase();
+    const matchesQuery = !query || haystack.includes(query);
     const matchesType = type === "Todos" || !type || device.type === type;
-    return matchesQuery && matchesType;
+    const deviceStatus = device.blocked ? "blocked" : device.connected ? "connected" : "offline";
+    const matchesStatus = status === "all" || !status || deviceStatus === status;
+    return matchesQuery && matchesType && matchesStatus;
   });
 }
 
@@ -400,7 +559,7 @@ function renderDevices() {
     deviceGrid.innerHTML = `
       <article class="empty-state">
         <h3>No hay dispositivos para mostrar</h3>
-        <p>Pruebe actualizar, limpiar el buscador o ejecutar un escaneo Nmap.</p>
+        <p>Pruebe actualizar, limpiar el buscador o escanear su red.</p>
       </article>
     `;
     return;
@@ -409,20 +568,26 @@ function renderDevices() {
   const cards = visibleDevices.map((device) => {
     const blockLabel = device.blocked ? "Desbloquear" : "Bloquear";
     const blockClass = device.blocked ? "unblock" : "block";
-    const signalClass = device.source === "database" ? "scanned" : Number.parseInt(device.rssi, 10) <= -75 ? "weak" : "";
+    const signal = deviceSignal(device);
     const statusText = deviceStatusText(device);
+    const cardState = `${device.blocked ? "is-blocked" : ""} ${!device.connected ? "is-offline" : ""}`.trim();
 
     return `
-      <article class="device-card ${device.blocked ? "is-blocked" : ""}">
-        <span class="connection-dot ${signalClass}" title="${statusText}"></span>
+      <article class="device-card ${cardState}">
+        <div class="device-signal ${signal.key}" title="Senal WiFi: ${escapeHtml(signal.label)}">
+          ${wifiSignalIcon(signal)}
+          <span>${escapeHtml(signal.label)}</span>
+        </div>
         <div class="device-avatar ${escapeHtml(device.type)}">
           ${deviceIcon(device.type)}
         </div>
         <h3>${escapeHtml(device.name)}</h3>
         <p>${escapeHtml(deviceTypeLabel(device.type))}</p>
+        <span class="device-status-line ${device.connected ? "online" : "offline"}">${escapeHtml(statusText)}</span>
         <div class="device-meta-row">
           <span class="device-meta">${escapeHtml(device.ip || "IP no disponible")}</span>
           <span class="device-meta source">${escapeHtml(deviceSourceLabel(device))}</span>
+          <span class="device-meta seen">Visto: ${escapeHtml(formatTimestamp(device.last_seen))}</span>
         </div>
         <div class="device-actions">
           <button class="action-button ${blockClass}" type="button" data-action="block" data-mac="${escapeHtml(device.mac)}" data-action-copy="${escapeHtml(actionCopy("block", device))}">
@@ -430,6 +595,9 @@ function renderDevices() {
           </button>
           <button class="action-button rename" type="button" data-action="rename" data-mac="${escapeHtml(device.mac)}" data-action-copy="${escapeHtml(actionCopy("rename", device))}">
             Cambiar nombre
+          </button>
+          <button class="action-button forget" type="button" data-action="forget" data-mac="${escapeHtml(device.mac)}" data-device-name="${escapeHtml(device.name)}" data-action-copy="${escapeHtml(actionCopy("forget", device))}">
+            Olvidar
           </button>
         </div>
       </article>
@@ -441,11 +609,494 @@ function renderDevices() {
       <div class="device-avatar add" aria-hidden="true">+</div>
       <h3>Escanear otra vez</h3>
       <p>Busca nuevos equipos conectados al WiFi.</p>
-      <button class="button primary" type="button" data-view-link="scan">Ir a Nmap</button>
+      <button class="button primary" type="button" data-view-link="scan">Escanear red</button>
     </article>
   `);
 
   deviceGrid.innerHTML = cards.join("");
+}
+
+/**
+ * Devuelve un nombre breve para la vista de bloqueo.
+ * Solo usa la IP cuando el router no entrego un nombre reconocible.
+ *
+ * @param {object} device Dispositivo conocido.
+ * @returns {string} Nombre o IP de respaldo.
+ */
+function accessDeviceName(device) {
+  const hostname = String(device.hostname || "").trim();
+  const hasHostname = hostname && hostname.toLowerCase() !== "desconocido";
+
+  if (device.alias) {
+    return device.alias;
+  }
+
+  if (hasHostname) {
+    return hostname;
+  }
+
+  return device.ip || "Dispositivo desconocido";
+}
+
+/**
+ * Renderiza la seleccion y la lista real de usuarios bloqueados.
+ */
+function renderAccessControls() {
+  if (!accessDeviceSelect || !blockedUsersList) {
+    return;
+  }
+
+  const previousSelection = accessDeviceSelect.value;
+  const blockedSet = new Set(blockedMacs);
+  const selectable = devices
+    .filter((device) => device.mac && !blockedSet.has(device.mac))
+    .sort((left, right) => (
+      Number(right.connected) - Number(left.connected)
+      || String(left.name || left.mac).localeCompare(String(right.name || right.mac))
+    ));
+
+  if (selectable.length === 0) {
+    accessDeviceSelect.innerHTML = `<option value="">No hay usuarios disponibles</option>`;
+    accessDeviceSelect.disabled = true;
+    blockSelectedUser.disabled = true;
+    accessDeviceHelp.textContent = devices.length === 0
+      ? "Todavia no hay datos reales de dispositivos."
+      : "Todos los usuarios conocidos ya estan bloqueados.";
+  } else {
+    accessDeviceSelect.disabled = false;
+    blockSelectedUser.disabled = false;
+    accessDeviceSelect.innerHTML = selectable.map((device) => {
+      return `<option value="${escapeHtml(device.mac)}">${escapeHtml(accessDeviceName(device))}</option>`;
+    }).join("");
+
+    if (selectable.some((device) => device.mac === previousSelection)) {
+      accessDeviceSelect.value = previousSelection;
+    }
+
+    accessDeviceHelp.textContent = "El bloqueo se aplica a las redes WiFi administradas por el router.";
+  }
+
+  const blockedDevices = [...blockedSet].map((mac) => {
+    const known = getDeviceByMac(mac);
+    return known || {
+      mac,
+      name: "Dispositivo desconocido",
+      blocked: true,
+    };
+  });
+
+  blockedUsersCount.textContent = `${blockedDevices.length} ${blockedDevices.length === 1 ? "bloqueado" : "bloqueados"}`;
+
+  if (blockedDevices.length === 0) {
+    blockedUsersList.innerHTML = `<li class="blocked-empty">No hay usuarios bloqueados.</li>`;
+    return;
+  }
+
+  blockedUsersList.innerHTML = blockedDevices.map((device) => `
+    <li>
+      <div class="blocked-user">
+        <strong>${escapeHtml(accessDeviceName(device))}</strong>
+      </div>
+      <button type="button" data-action="block" data-mac="${escapeHtml(device.mac)}" data-device-name="${escapeHtml(accessDeviceName(device))}">
+        Desbloquear
+      </button>
+    </li>
+  `).join("");
+}
+
+/**
+ * Abre la confirmacion para el usuario seleccionado en la vista de bloqueo.
+ */
+function blockSelectedAccessUser() {
+  const mac = accessDeviceSelect.value;
+
+  if (!mac) {
+    setBoxNotice(accessNotice, "Seleccione un usuario para bloquear.", "warning");
+    return;
+  }
+
+  setBoxNotice(accessNotice, "");
+  openActionModal({
+    dataset: {
+      action: "block",
+      mac,
+      deviceName: accessDeviceName(getDeviceByMac(mac) || {}),
+    },
+  });
+}
+
+/**
+ * Genera una semilla estable para ubicar cada usuario dentro del radar.
+ *
+ * @param {string} value Identificador del dispositivo.
+ * @returns {number} Entero positivo estable.
+ */
+function radarHash(value) {
+  return Array.from(String(value || "device")).reduce(
+    (hash, character) => ((hash * 31) + character.charCodeAt(0)) >>> 0,
+    7,
+  );
+}
+
+/**
+ * Calcula una posicion dentro del circulo del radar.
+ *
+ * @param {object} device Dispositivo visible.
+ * @param {number} index Posicion en la lista.
+ * @returns {{x: number, y: number, delay: number}}
+ */
+function radarPosition(device, index) {
+  const seed = radarHash(device.mac || device.ip || device.name || index);
+  const angle = ((seed % 360) * Math.PI) / 180;
+  const radius = 16 + ((seed >>> 8) % 20);
+
+  return {
+    x: 50 + (Math.cos(angle) * radius),
+    y: 50 + (Math.sin(angle) * radius),
+    delay: Math.min(index * 90, 900),
+  };
+}
+
+/**
+ * Pinta puntos reales para los dispositivos encontrados.
+ *
+ * @param {Array<object>} sourceDevices Dispositivos a representar.
+ */
+function renderRadarDots(sourceDevices) {
+  if (!radarPoints) {
+    return;
+  }
+
+  const unique = [];
+  const seen = new Set();
+
+  sourceDevices.forEach((device) => {
+    const key = device.mac || device.ip;
+
+    if (!key || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    unique.push(device);
+  });
+
+  radarPoints.innerHTML = unique.slice(0, 36).map((device, index) => {
+    const position = radarPosition(device, index);
+    const label = accessDeviceName(device);
+    const state = device.connected === false ? "is-offline" : "";
+
+    return `
+      <button
+        type="button"
+        class="radar-point ${state}"
+        style="--radar-x: ${position.x.toFixed(2)}%; --radar-y: ${position.y.toFixed(2)}%; --radar-delay: ${position.delay}ms"
+        aria-label="${escapeHtml(label)}"
+        aria-pressed="false"
+      >
+        <span class="radar-tooltip">${escapeHtml(label)}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+/**
+ * Sincroniza el radar en reposo con la ultima lectura real.
+ *
+ * @param {object} data Respuesta mas reciente de dispositivos.
+ */
+function syncRadar(data = {}) {
+  if (!networkRadar || networkRadar.classList.contains("is-scanning")) {
+    return;
+  }
+
+  const activeDevices = devices.filter((device) => device.connected);
+  renderRadarDots(activeDevices);
+  scanRange.textContent = data.subnet || lastDevicePayload?.subnet || "Red local";
+  scanDeviceCount.textContent = activeDevices.length;
+  scanState.textContent = "Lectura activa";
+  radarStatus.textContent = activeDevices.length > 0
+    ? "Dispositivos visibles en la red"
+    : "Listo para buscar dispositivos";
+  radarCount.textContent = activeDevices.length === 1
+    ? "1 usuario visible."
+    : `${activeDevices.length} usuarios visibles.`;
+}
+
+/**
+ * Inicia el barrido y revela gradualmente los usuarios ya visibles.
+ */
+function startRadarScan() {
+  window.clearInterval(radarRevealTimer);
+  networkRadar.classList.add("is-scanning");
+  scanProgress.hidden = false;
+  scanState.textContent = "Escaneando";
+  scanDeviceCount.textContent = "0";
+  radarStatus.textContent = "Buscando dispositivos en la red";
+  radarCount.textContent = "Cada punto representa un usuario detectado.";
+  radarPoints.innerHTML = "";
+
+  const visibleQueue = devices.filter((device) => device.connected);
+  let revealed = 0;
+
+  radarRevealTimer = window.setInterval(() => {
+    if (revealed >= visibleQueue.length) {
+      return;
+    }
+
+    revealed += 1;
+    renderRadarDots(visibleQueue.slice(0, revealed));
+    scanDeviceCount.textContent = revealed;
+  }, 650);
+}
+
+/**
+ * Detiene el barrido y deja visibles los resultados reales del escaneo.
+ *
+ * @param {object} data Respuesta de la API.
+ */
+function finishRadarScan(data) {
+  window.clearInterval(radarRevealTimer);
+  networkRadar.classList.remove("is-scanning");
+  scanProgress.hidden = true;
+
+  const scannedDevices = Array.isArray(data.scan_devices) && data.scan_devices.length > 0
+    ? data.scan_devices
+    : (data.devices || []).filter((device) => device.connected);
+
+  renderRadarDots(scannedDevices);
+  scanRange.textContent = data.subnet || "Red local";
+  scanState.textContent = "Completado";
+  scanDeviceCount.textContent = scannedDevices.length;
+  radarStatus.textContent = "Busqueda completada";
+  radarCount.textContent = scannedDevices.length === 1
+    ? "1 usuario encontrado."
+    : `${scannedDevices.length} usuarios encontrados.`;
+}
+
+/**
+ * Detiene la animacion cuando el escaneo no logra completarse.
+ */
+function failRadarScan() {
+  window.clearInterval(radarRevealTimer);
+  networkRadar.classList.remove("is-scanning");
+  scanProgress.hidden = true;
+  scanState.textContent = "No completado";
+  radarStatus.textContent = "No se pudo terminar la busqueda";
+  radarCount.textContent = "Los puntos conservan la ultima lectura real.";
+}
+
+/**
+ * Traduce eventos de presencia a texto visible.
+ *
+ * @param {string} event Tipo de evento guardado.
+ * @returns {string} Etiqueta para historial.
+ */
+function eventLabel(event) {
+  const labels = {
+    connected: "Se conecto",
+    disconnected: "Se desconecto",
+    moved: "Cambio de red",
+  };
+
+  return labels[event] || "Actividad";
+}
+
+/**
+ * Devuelve clase visual para un evento de presencia.
+ *
+ * @param {string} event Tipo de evento guardado.
+ * @returns {string} Clase CSS corta.
+ */
+function eventClass(event) {
+  if (event === "connected") {
+    return "success";
+  }
+
+  if (event === "disconnected") {
+    return "danger";
+  }
+
+  return "";
+}
+
+/**
+ * Obtiene el nombre visible de un evento historico.
+ *
+ * @param {object} item Evento recibido desde la API.
+ * @returns {string} Nombre para mostrar.
+ */
+function historyDeviceName(item) {
+  return item.alias || item.hostname || item.mac || "Dispositivo";
+}
+
+/**
+ * Renderiza la lista de eventos recientes debajo de los dispositivos.
+ */
+function renderDeviceHistory() {
+  if (!deviceHistory) {
+    return;
+  }
+
+  if (deviceHistoryItems.length === 0) {
+    deviceHistory.innerHTML = `<li class="history-empty">Sin eventos recientes.</li>`;
+    return;
+  }
+
+  deviceHistory.innerHTML = deviceHistoryItems.map((item) => {
+    const name = historyDeviceName(item);
+    const detail = item.detail || item.network || item.ip || item.mac;
+
+    return `
+      <li>
+        <span class="history-dot ${eventClass(item.event)}" aria-hidden="true"></span>
+        <div>
+          <strong>${escapeHtml(eventLabel(item.event))}: ${escapeHtml(name)}</strong>
+          <p>${escapeHtml(detail || "Sin detalle")} - ${escapeHtml(formatTimestamp(item.created_at))}</p>
+        </div>
+        <button class="history-forget" type="button" data-action="forget" data-mac="${escapeHtml(item.mac)}" data-device-name="${escapeHtml(name)}">
+          Olvidar
+        </button>
+      </li>
+    `;
+  }).join("");
+}
+
+/**
+ * Pinta actividad reciente en el dashboard con los mismos eventos historicos.
+ */
+function renderDashboardActivity() {
+  if (!activityList) {
+    return;
+  }
+
+  const recent = deviceHistoryItems.slice(0, 5);
+
+  if (recent.length === 0) {
+    activityList.innerHTML = `
+      <li>
+        <span class="activity-dot"></span>
+        <div>
+          <strong>Sin actividad reciente</strong>
+          <p>La siguiente lectura registrara conexiones o desconexiones.</p>
+        </div>
+      </li>
+    `;
+    return;
+  }
+
+  activityList.innerHTML = recent.map((item) => `
+    <li>
+      <span class="activity-dot ${eventClass(item.event)}"></span>
+      <div>
+        <strong>${escapeHtml(eventLabel(item.event))}: ${escapeHtml(historyDeviceName(item))}</strong>
+        <p>${escapeHtml(item.network || item.ip || item.mac)} - ${escapeHtml(formatTimestamp(item.created_at))}</p>
+      </div>
+    </li>
+  `).join("");
+}
+
+/**
+ * Actualiza las metricas superiores a partir de dispositivos e historial.
+ *
+ * @param {object} data Respuesta de `/api/devices`.
+ */
+function updateDashboard(data = {}) {
+  const currentData = Object.keys(data).length > 0 ? data : lastDevicePayload || {};
+  const activeCount = Number(currentData.active_count ?? devices.filter((device) => device.connected).length);
+  const blockedCount = blockedMacs.length;
+  const signal = dashboardSignal();
+  const newToday = new Set(deviceHistoryItems.filter((item) => (
+    item.event === "connected" && isToday(item.created_at)
+  )).map((item) => item.mac)).size;
+  const nowText = `Ultima lectura: ${formatTimestamp(new Date().toISOString())}`;
+  const routerReachable = currentData.router_reachable === true;
+
+  if (metricConnected) {
+    metricConnected.textContent = activeCount;
+  }
+
+  if (metricNewToday) {
+    metricNewToday.textContent = `${newToday} nuevos hoy`;
+  }
+
+  if (metricBlocked) {
+    metricBlocked.textContent = hasBlockedSnapshot ? blockedCount : "--";
+  }
+
+  if (metricBlockedDetail) {
+    metricBlockedDetail.textContent = !hasBlockedSnapshot
+      ? "Router no disponible"
+      : currentData.blocked_macs_available === false
+        ? "Ultima lista confirmada"
+        : blockedCount === 0
+          ? "Ningun bloqueo activo"
+          : "Lista actual del router";
+  }
+
+  if (metricSignal) {
+    metricSignal.className = `signal-summary ${signal.key}`;
+    metricSignal.innerHTML = `${wifiSignalIcon(signal)}<span>${escapeHtml(signal.label)}</span>`;
+  }
+
+  if (metricSignalDetail) {
+    metricSignalDetail.textContent = signal.measured
+      ? "Estado mas bajo entre los equipos activos"
+      : activeCount > 0
+        ? "El router no reporto intensidad"
+        : "No hay equipos WiFi activos";
+  }
+
+  if (dashboardFreshness) {
+    dashboardFreshness.textContent = nowText;
+  }
+
+  if (deviceFreshness) {
+    deviceFreshness.textContent = `${nowText} - auto ${autoRefreshEnabled ? "activo" : "pausado"}`;
+  }
+
+  if (routerStatusText && routerStatusAddress) {
+    routerStatusText.textContent = routerReachable ? "Router conectado" : "Router sin respuesta";
+    routerStatusAddress.textContent = routerReachable
+      ? currentData.warning ? "Lectura parcial disponible" : "Lectura en vivo"
+      : "Datos locales disponibles";
+    routerStatusCard.classList.toggle("is-offline", !routerReachable);
+    routerStatusDot.classList.toggle("is-offline", !routerReachable);
+  }
+
+  renderDashboardActivity();
+  renderAccessControls();
+  syncRadar(currentData);
+}
+
+/**
+ * Programa la siguiente lectura automatica de dispositivos.
+ */
+function scheduleDeviceRefresh() {
+  window.clearTimeout(deviceRefreshTimer);
+
+  if (!autoRefreshEnabled) {
+    return;
+  }
+
+  deviceRefreshTimer = window.setTimeout(() => {
+    if (document.hidden) {
+      scheduleDeviceRefresh();
+      return;
+    }
+
+    loadDevices({ silent: true });
+  }, DEVICE_REFRESH_INTERVAL_MS);
+}
+
+/**
+ * Activa o pausa la actualizacion periodica del panel.
+ */
+function toggleAutoRefresh() {
+  autoRefreshEnabled = !autoRefreshEnabled;
+  autoRefreshDevices.textContent = autoRefreshEnabled ? "Auto: activo" : "Auto: pausado";
+  updateDashboard();
+  scheduleDeviceRefresh();
 }
 
 /**
@@ -475,32 +1126,99 @@ async function apiRequest(url, options = {}) {
 /**
  * Carga dispositivos desde el router o desde el respaldo SQLite.
  */
-async function loadDevices() {
-  deviceGrid.innerHTML = `
-    <article class="device-card skeleton">
-      <div class="device-avatar"></div>
-      <h3>Cargando dispositivos</h3>
-      <p>Consultando WiFi 2.4/5 GHz y Nmap.</p>
-    </article>
-  `;
+async function loadDevices(options = {}) {
+  const silent = Boolean(options.silent);
+
+  if (devicesLoading) {
+    return;
+  }
+
+  devicesLoading = true;
+
+  if (!silent) {
+    deviceGrid.innerHTML = `
+      <article class="device-card skeleton">
+        <div class="device-avatar"></div>
+        <h3>Cargando dispositivos</h3>
+        <p>Consultando WiFi 2.4/5 GHz, escaneo local y ping.</p>
+      </article>
+    `;
+  }
 
   try {
     const data = await apiRequest("/api/devices");
     devices = data.devices || [];
+    deviceHistoryItems = data.history || [];
 
-    if (data.source === "database") {
-      setNotice("No se pudo leer el router ahora mismo. Estoy mostrando lo guardado en la base de datos.", "warning");
+    if (data.blocked_macs_available !== false) {
+      blockedMacs = data.blocked_macs || [];
+      hasBlockedSnapshot = true;
+    }
+
+    lastDevicePayload = data;
+
+    if (!data.router_reachable) {
+      setNotice("No se pudo leer el router ahora mismo. Estoy mostrando historial local y equipos que respondan ping.", "warning");
+    } else if (data.warning) {
+      setNotice(`Lectura parcial: ${data.warning}`, "warning");
     } else if (Number(data.scanned_count || 0) > 0) {
-      setNotice("Mostrando clientes WiFi de 2.4/5 GHz junto con dispositivos guardados por Nmap.", "success");
+      setNotice("Datos reales actualizados: redes 2.4/5 GHz, invitados, ping local e historial de red.", "success");
     } else {
       setNotice("");
     }
 
     renderDevices();
+    renderDeviceHistory();
+    updateDashboard(data);
   } catch (error) {
-    devices = sampleDevices;
-    setNotice("Modo demo: abra el panel desde el servidor Python para usar funciones reales.", "warning");
-    renderDevices();
+    setNotice(`No se pudo actualizar: ${error.message}. Se conservan los ultimos datos reales disponibles.`, "warning");
+
+    if (devices.length === 0) {
+      deviceGrid.innerHTML = `
+        <article class="empty-state">
+          <h3>No hay una lectura real disponible</h3>
+          <p>Revise que el servidor local este activo y vuelva a actualizar.</p>
+        </article>
+      `;
+      metricConnected.textContent = "--";
+      metricBlocked.textContent = "--";
+      metricNewToday.textContent = "Sin datos recientes";
+      metricSignal.className = "signal-summary unknown";
+      metricSignal.innerHTML = `${wifiSignalIcon({ key: "unknown", level: 0 })}<span>Sin medicion</span>`;
+      metricSignalDetail.textContent = "No se pudo consultar la red";
+    }
+
+    dashboardFreshness.textContent = "Ultima lectura: fallo la actualizacion";
+    deviceFreshness.textContent = `Actualizacion fallida - auto ${autoRefreshEnabled ? "activo" : "pausado"}`;
+    routerStatusText.textContent = "Router sin confirmar";
+    routerStatusAddress.textContent = "Sin lectura reciente";
+    routerStatusCard.classList.add("is-offline");
+    routerStatusDot.classList.add("is-offline");
+    renderAccessControls();
+  } finally {
+    devicesLoading = false;
+    scheduleDeviceRefresh();
+  }
+}
+
+/**
+ * Limpia los eventos historicos sin borrar dispositivos conocidos.
+ */
+async function clearHistory() {
+  clearDeviceHistory.disabled = true;
+  clearDeviceHistory.textContent = "Borrando...";
+
+  try {
+    const data = await apiRequest("/api/devices/history/clear", { method: "POST" });
+    deviceHistoryItems = [];
+    renderDeviceHistory();
+    updateDashboard();
+    setNotice(data.message || "Historial borrado.", "success");
+  } catch (error) {
+    setNotice(error.message, "warning");
+  } finally {
+    clearDeviceHistory.disabled = false;
+    clearDeviceHistory.textContent = "Limpiar historial";
   }
 }
 
@@ -515,9 +1233,26 @@ async function loadGuestConfig() {
     guestEnabled.checked = Boolean(data.guest.habilitada);
     guestSsid.value = data.guest.ssid || "";
     guestPassword.value = data.guest.password || "";
+
+    if (metricGuestState) {
+      metricGuestState.textContent = data.guest.habilitada ? "Activa" : "Inactiva";
+    }
+
+    if (metricGuestSsid) {
+      metricGuestSsid.textContent = data.guest.ssid ? `SSID: ${data.guest.ssid}` : "SSID sin nombre";
+    }
+
     guestLoaded = true;
     setBoxNotice(guestNotice, "");
   } catch (error) {
+    if (metricGuestState) {
+      metricGuestState.textContent = "Sin lectura";
+    }
+
+    if (metricGuestSsid) {
+      metricGuestSsid.textContent = "Router no disponible";
+    }
+
     setBoxNotice(guestNotice, `No se pudo leer el router: ${error.message}`, "warning");
   }
 }
@@ -552,24 +1287,36 @@ async function updateGuestConfig() {
 }
 
 /**
- * Solicita un escaneo Nmap de la subred local y actualiza la vista.
+ * Busca dispositivos en la subred local y actualiza la vista.
  */
 async function runScan() {
   startScan.disabled = true;
-  startScan.textContent = "Escaneando...";
-  setBoxNotice(scanNotice, "Escaneando la red local. Esto puede tardar un poco.");
+  startScan.textContent = "Buscando...";
+  setBoxNotice(scanNotice, "");
+  startRadarScan();
 
   try {
     const data = await apiRequest("/api/scan", { method: "POST" });
     devices = data.devices || [];
-    setBoxNotice(scanNotice, "Escaneo terminado. Los dispositivos fueron guardados y unidos con los clientes WiFi.", "success");
-    showView("devices");
+    deviceHistoryItems = data.history || deviceHistoryItems;
+
+    if (data.blocked_macs_available !== false && Array.isArray(data.blocked_macs)) {
+      blockedMacs = data.blocked_macs;
+      hasBlockedSnapshot = true;
+    }
+
+    lastDevicePayload = data;
+    setBoxNotice(scanNotice, "Busqueda terminada. Los usuarios encontrados ya estan disponibles en el panel.", "success");
     renderDevices();
+    renderDeviceHistory();
+    updateDashboard(data);
+    finishRadarScan(data);
   } catch (error) {
     setBoxNotice(scanNotice, error.message, "warning");
+    failRadarScan();
   } finally {
     startScan.disabled = false;
-    startScan.textContent = "Iniciar escaneo";
+    startScan.textContent = "Escanear ahora";
   }
 }
 
@@ -676,9 +1423,13 @@ function getDeviceByMac(mac) {
 function openActionModal(button) {
   const mac = button.dataset.mac;
   const action = button.dataset.action;
-  const device = getDeviceByMac(mac);
+  const device = getDeviceByMac(mac) || {
+    mac,
+    name: button.dataset.deviceName || mac,
+    blocked: blockedMacs.includes(mac),
+  };
 
-  if (!device) {
+  if (!device.mac) {
     return;
   }
 
@@ -690,6 +1441,10 @@ function openActionModal(button) {
     modalTitle.textContent = "Cambiar nombre";
     modalCopy.textContent = "Escriba un nombre sencillo para reconocer este equipo. Se guardara en la base de datos por su direccion MAC.";
     modalConfirm.textContent = "Guardar nombre";
+  } else if (action === "forget") {
+    modalTitle.textContent = "Olvidar dispositivo";
+    modalCopy.textContent = "Se borrara el alias, el historial local y el registro guardado para este equipo. Si todavia esta conectado, reaparecera en la siguiente lectura.";
+    modalConfirm.textContent = "Olvidar";
   } else if (device.blocked) {
     modalTitle.textContent = "Desbloquear dispositivo";
     modalCopy.textContent = "Este equipo podra volver a usar el WiFi despues de confirmar.";
@@ -735,18 +1490,27 @@ async function confirmAction() {
         body: JSON.stringify({ mac: device.mac, alias: aliasInput.value }),
       });
       successMessage = "Nombre guardado correctamente.";
-    } else {
-      const path = device.blocked ? "/api/devices/unblock" : "/api/devices/block";
-      await apiRequest(path, {
+    } else if (action === "forget") {
+      await apiRequest("/api/devices/forget", {
         method: "POST",
         body: JSON.stringify({ mac: device.mac }),
       });
-      successMessage = device.blocked ? "Dispositivo desbloqueado." : "Dispositivo bloqueado.";
+      successMessage = "Dispositivo eliminado del historial local.";
+    } else {
+      const path = device.blocked ? "/api/devices/unblock" : "/api/devices/block";
+      const data = await apiRequest(path, {
+        method: "POST",
+        body: JSON.stringify({ mac: device.mac }),
+      });
+      successMessage = data.message || (
+        device.blocked ? "Usuario desbloqueado." : "Usuario bloqueado."
+      );
     }
 
     closeActionModal();
     await loadDevices();
     setNotice(successMessage, "success");
+    setBoxNotice(accessNotice, successMessage, "success");
   } catch (error) {
     modalCopy.textContent = error.message;
   } finally {
@@ -789,10 +1553,43 @@ document.addEventListener("click", (event) => {
   }
 });
 
+radarPoints.addEventListener("click", (event) => {
+  const selectedPoint = event.target.closest(".radar-point");
+
+  if (!selectedPoint) {
+    return;
+  }
+
+  const willSelect = !selectedPoint.classList.contains("is-selected");
+
+  radarPoints.querySelectorAll(".radar-point").forEach((point) => {
+    point.classList.remove("is-selected");
+    point.setAttribute("aria-pressed", "false");
+  });
+
+  selectedPoint.classList.toggle("is-selected", willSelect);
+  selectedPoint.setAttribute("aria-pressed", String(willSelect));
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".radar-point")) {
+    return;
+  }
+
+  radarPoints.querySelectorAll(".radar-point.is-selected").forEach((point) => {
+    point.classList.remove("is-selected");
+    point.setAttribute("aria-pressed", "false");
+  });
+});
+
 // Eventos directos de formularios y botones persistentes.
 deviceSearch.addEventListener("input", renderDevices);
 deviceTypeFilter.addEventListener("change", renderDevices);
-refreshDevices.addEventListener("click", loadDevices);
+deviceStatusFilter.addEventListener("change", renderDevices);
+refreshDevices.addEventListener("click", () => loadDevices());
+autoRefreshDevices.addEventListener("click", toggleAutoRefresh);
+clearDeviceHistory.addEventListener("click", clearHistory);
+blockSelectedUser.addEventListener("click", blockSelectedAccessUser);
 saveGuest.addEventListener("click", updateGuestConfig);
 startScan.addEventListener("click", runScan);
 refreshParentalSites.addEventListener("click", loadSiteProfiles);
@@ -824,3 +1621,12 @@ document.addEventListener("keydown", (event) => {
     closeActionModal();
   }
 });
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && autoRefreshEnabled) {
+    loadDevices({ silent: true });
+  }
+});
+
+loadDevices({ silent: true });
+loadGuestConfig();
