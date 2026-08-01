@@ -64,13 +64,17 @@ La tabla `device_aliases` se crea desde `app.device_store.ensure_alias_table`:
 - `GET /api/devices`: lista clientes del router en 2.4/5 GHz y suma
   dispositivos guardados por Nmap; si el router falla, usa SQLite.
 - `GET /api/blocked`: lista las MAC bloqueadas en el router.
-- `GET /api/guest?band=2.4`: devuelve configuracion de invitados.
+- `GET /api/guest?band=2.4|5`: devuelve configuracion de invitados.
+- `GET /api/primary?band=2.4|5`: devuelve configuracion de red primaria.
 - `GET /api/scan/devices`: devuelve dispositivos historicos escaneados.
 - `GET /api/parental/sites`: devuelve perfiles de sitios y juegos bloqueables.
 - `POST /api/devices/alias`: guarda un alias visible por MAC.
 - `POST /api/devices/block`: agrega una MAC al filtro de bloqueo.
 - `POST /api/devices/unblock`: elimina una MAC del filtro de bloqueo.
-- `POST /api/guest`: activa o desactiva invitados y actualiza SSID/clave.
+- `POST /api/guest`: activa o desactiva invitados y actualiza SSID, clave,
+  visibilidad y limite de usuarios cuando el firmware lo expone.
+- `POST /api/primary`: actualiza SSID, clave, visibilidad y limite de usuarios
+  cuando el firmware lo expone.
 - `POST /api/scan`: detecta subred local, ejecuta Nmap y devuelve resultados.
 - `POST /api/parental/block`: crea reglas de bloqueo para un perfil.
 - `POST /api/parental/unblock`: elimina reglas de bloqueo para un perfil.
@@ -110,9 +114,10 @@ consola, servidor web y persistencia auxiliar.
 Implementa el menu interactivo de consola para administracion KAON. Sus
 funciones cubren listado de clientes, consulta de MAC bloqueadas, bloqueo y
 desbloqueo, configuracion de SSID y clave WPA, visibilidad de SSID, activacion
-o desactivacion de red primaria e invitados, creacion y eliminacion de reglas de
-control parental por dominio, refuerzo anti-evasion por puerto, y escaneo Nmap.
-El modulo usa confirmaciones explicitas antes de cambios sensibles.
+o desactivacion de red primaria e invitados, limite de usuarios por interfaz
+cuando el firmware lo expone, creacion y eliminacion de reglas de control
+parental por dominio, refuerzo anti-evasion por puerto, y escaneo Nmap. El
+modulo usa confirmaciones explicitas antes de cambios sensibles.
 
 ### `src/app/device_store.py`
 
@@ -161,7 +166,10 @@ basica, lee paginas HTML, extrae formularios, aplica cambios por endpoints
 `goform` y confirma estado despues de timeouts. Soporta clientes conectados,
 MAC bloqueadas, red de invitados, red primaria en bandas 2.4 GHz y 5 GHz, y
 reglas de control parental desde `/RgFiltering.asp`, incluyendo alta y baja por
-indice de tabla, reglas por dominio y reglas por puerto.
+indice de tabla, reglas por dominio y reglas por puerto. Los formularios reales
+adjuntos usan `ClosedNetwork` para ocultar SSID primario y `ClosedNetworkGuest`
+para invitados; el limite de usuarios se aplica solo si la pagina del firmware
+incluye un campo compatible.
 
 ### `src/routers/openwrt_ssh_access_control.py`
 
@@ -174,8 +182,8 @@ a `maclist`, confirmar configuracion y recargar WiFi.
 ### `view/panel-red.html`
 
 Documento HTML del panel. Define sidebar, barra superior, dashboard, vista de
-dispositivos, control MAC, red de invitados, escaneo Nmap y modal reutilizable.
-El contenido dinamico se llena desde `panel-red.js`.
+dispositivos, control MAC, red primaria, redes de invitados, escaneo Nmap y
+modal reutilizable. El contenido dinamico se llena desde `panel-red.js`.
 
 ### `view/panel-red.css`
 
@@ -187,7 +195,9 @@ modal y media queries para pantallas pequenas.
 
 Controlador del panel. Gestiona navegacion entre vistas, estado en memoria,
 llamadas `fetch` a `/api/`, renderizado seguro de tarjetas, filtros de busqueda,
-red de invitados, escaneo Nmap y modal de acciones por dispositivo.
+red primaria e invitados por banda, escaneo Nmap y modal de acciones por
+dispositivo. Tambien alterna la visibilidad local de las claves WPA desde los
+botones de ojo.
 
 ### `view/assets/icons/`
 

@@ -478,6 +478,59 @@ h3 {
   max-width: 180px;
 }
 
+.password-field {
+  position: relative;
+  display: block;
+}
+
+.password-field input {
+  padding-right: 46px;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  transform: translateY(-50%);
+}
+
+.password-toggle:hover,
+.password-toggle.is-visible {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.password-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.password-toggle.is-visible::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(-42deg);
+}
+
 /* Encabezado de la vista de dispositivos y filtros de busqueda. */
 .devices-intro {
   display: flex;
@@ -1052,8 +1105,31 @@ th {
 }
 
 /* Configuracion de invitados y experiencia de descubrimiento de red. */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
 .settings-panel {
   max-width: 920px;
+}
+
+.settings-grid .settings-panel {
+  max-width: none;
+}
+
+.settings-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-card-header .switch,
+.settings-card-header .badge {
+  flex: 0 0 auto;
 }
 
 .form-actions {
@@ -1408,6 +1484,11 @@ th {
   height: 18px;
 }
 
+.checkbox-option.is-disabled {
+  color: var(--text-muted);
+  opacity: 0.72;
+}
+
 .site-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(230px, 1fr));
@@ -1746,6 +1827,7 @@ th {
 
   .metrics,
   .content-grid,
+  .settings-grid,
   .device-grid,
   .site-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1771,6 +1853,7 @@ th {
   .metrics,
   .content-grid,
   .scan-experience,
+  .settings-grid,
   .form.two-cols,
   .device-grid,
   .parental-toolbar,

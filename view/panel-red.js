@@ -2,8 +2,8 @@
  * Controlador del panel web de administracion de red.
  *
  * Este script coordina navegacion entre vistas, renderizado de dispositivos,
- * consumo de la API local, configuracion de red de invitados, escaneo Nmap y
- * acciones modales para renombrar, bloquear, desbloquear u olvidar equipos.
+ * consumo de la API local, configuracion de redes WiFi, escaneo Nmap y acciones
+ * modales para renombrar, bloquear, desbloquear u olvidar equipos.
  */
 
 // Referencias DOM usadas por las vistas principales del panel.
@@ -16,6 +16,7 @@ const deviceSearch = document.getElementById("deviceSearch");
 const deviceTypeFilter = document.getElementById("deviceTypeFilter");
 const deviceStatusFilter = document.getElementById("deviceStatusFilter");
 const refreshDevices = document.getElementById("refreshDevices");
+const reloadPanel = document.getElementById("reloadPanel");
 const autoRefreshDevices = document.getElementById("autoRefreshDevices");
 const deviceFreshness = document.getElementById("deviceFreshness");
 const dashboardFreshness = document.getElementById("dashboardFreshness");
@@ -40,11 +41,10 @@ const accessDeviceHelp = document.getElementById("accessDeviceHelp");
 const blockSelectedUser = document.getElementById("blockSelectedUser");
 const blockedUsersCount = document.getElementById("blockedUsersCount");
 const blockedUsersList = document.getElementById("blockedUsersList");
+const primaryNotice = document.getElementById("primaryNotice");
+const primarySaveButtons = document.querySelectorAll("[data-primary-save]");
 const guestNotice = document.getElementById("guestNotice");
-const guestEnabled = document.getElementById("guestEnabled");
-const guestSsid = document.getElementById("guestSsid");
-const guestPassword = document.getElementById("guestPassword");
-const saveGuest = document.getElementById("saveGuest");
+const guestSaveButtons = document.querySelectorAll("[data-guest-save]");
 const scanNotice = document.getElementById("scanNotice");
 const startScan = document.getElementById("startScan");
 const networkRadar = document.getElementById("networkRadar");
@@ -73,7 +73,9 @@ let devices = [];
 let deviceHistoryItems = [];
 let blockedMacs = [];
 let siteProfiles = [];
+let guestConfigs = {};
 let pendingAction = null;
+let primaryLoaded = false;
 let guestLoaded = false;
 let parentalLoaded = false;
 let devicesLoading = false;
@@ -82,8 +84,14 @@ let deviceRefreshTimer = null;
 let lastDevicePayload = null;
 let hasBlockedSnapshot = false;
 let radarRevealTimer = null;
+let accessStateOverrides = new Map();
 
 const DEVICE_REFRESH_INTERVAL_MS = 10000;
+const ACCESS_OVERRIDE_TTL_MS = 30000;
+const WIFI_BANDS = [
+  { value: "2.4", label: "2.4 GHz", shortLabel: "2.4" },
+  { value: "5", label: "5 GHz", shortLabel: "5" },
+];
 
 /**
  * Activa una vista del panel y carga datos diferidos cuando corresponde.
@@ -105,6 +113,10 @@ function showView(viewId) {
 
   if (viewId === "access") {
     renderAccessControls();
+  }
+
+  if (viewId === "wifi" && !primaryLoaded) {
+    loadPrimaryConfigs();
   }
 
   if (viewId === "guest" && !guestLoaded) {
@@ -647,9 +659,9 @@ function renderAccessControls() {
   }
 
   const previousSelection = accessDeviceSelect.value;
-  const blockedSet = new Set(blockedMacs);
+  const blockedSet = new Set(blockedMacs.map(canonicalMac));
   const selectable = devices
-    .filter((device) => device.mac && !blockedSet.has(device.mac))
+    .filter((device) => device.mac && !blockedSet.has(canonicalMac(device.mac)))
     .sort((left, right) => (
       Number(right.connected) - Number(left.connected)
       || String(left.name || left.mac).localeCompare(String(right.name || right.mac))
@@ -697,7 +709,7 @@ function renderAccessControls() {
       <div class="blocked-user">
         <strong>${escapeHtml(accessDeviceName(device))}</strong>
       </div>
-      <button type="button" data-action="block" data-mac="${escapeHtml(device.mac)}" data-device-name="${escapeHtml(accessDeviceName(device))}">
+      <button type="button" data-action="unblock" data-mac="${escapeHtml(device.mac)}" data-device-name="${escapeHtml(accessDeviceName(device))}">
         Desbloquear
       </button>
     </li>
@@ -723,6 +735,103 @@ function blockSelectedAccessUser() {
       deviceName: accessDeviceName(getDeviceByMac(mac) || {}),
     },
   });
+}
+
+/**
+ * Devuelve una MAC en una forma estable para comparar listas del router y UI.
+ *
+ * @param {string} mac Direccion MAC recibida.
+ * @returns {string} MAC normalizada para comparacion.
+ */
+function canonicalMac(mac) {
+  return String(mac || "").trim().toUpperCase();
+}
+
+/**
+ * Sincroniza el ultimo snapshot de dispositivos con la lista bloqueada local.
+ */
+function syncBlockedSnapshot() {
+  if (lastDevicePayload) {
+    lastDevicePayload = {
+      ...lastDevicePayload,
+      blocked_macs: [...blockedMacs],
+      blocked_macs_available: true,
+    };
+  }
+
+  hasBlockedSnapshot = true;
+}
+
+/**
+ * Cambia el estado local de bloqueo de una MAC sin esperar otra lectura.
+ *
+ * @param {string} mac Direccion MAC a actualizar.
+ * @param {boolean} blocked Estado deseado.
+ */
+function setBlockedMacInState(mac, blocked) {
+  const normalizedMac = canonicalMac(mac);
+
+  if (!normalizedMac) {
+    return;
+  }
+
+  const remaining = blockedMacs.filter((blockedMac) => (
+    canonicalMac(blockedMac) !== normalizedMac
+  ));
+  blockedMacs = blocked ? [...remaining, normalizedMac] : remaining;
+  devices = devices.map((device) => (
+    canonicalMac(device.mac) === normalizedMac
+      ? { ...device, blocked }
+      : device
+  ));
+
+  syncBlockedSnapshot();
+}
+
+/**
+ * Elimina confirmaciones locales vencidas para no ocultar errores permanentes.
+ */
+function pruneAccessOverrides() {
+  const now = Date.now();
+
+  accessStateOverrides.forEach((override, mac) => {
+    if (override.expiresAt <= now) {
+      accessStateOverrides.delete(mac);
+    }
+  });
+}
+
+/**
+ * Reaplica cambios confirmados localmente sobre lecturas del router que llegan tarde.
+ */
+function applyAccessOverridesToState() {
+  pruneAccessOverrides();
+
+  accessStateOverrides.forEach((override, mac) => {
+    setBlockedMacInState(mac, override.blocked);
+  });
+}
+
+/**
+ * Pinta inmediatamente un bloqueo o desbloqueo confirmado por la API.
+ *
+ * @param {string} mac Direccion MAC devuelta por el servidor.
+ * @param {boolean} blocked Estado final esperado.
+ */
+function setLocalAccessState(mac, blocked) {
+  const normalizedMac = canonicalMac(mac);
+
+  if (!normalizedMac) {
+    return;
+  }
+
+  accessStateOverrides.set(normalizedMac, {
+    blocked,
+    expiresAt: Date.now() + ACCESS_OVERRIDE_TTL_MS,
+  });
+  setBlockedMacInState(normalizedMac, blocked);
+  renderDevices();
+  updateDashboard(lastDevicePayload || {});
 }
 
 /**
@@ -1100,6 +1209,18 @@ function toggleAutoRefresh() {
 }
 
 /**
+ * Recarga el panel local desde un boton visible tambien en pantallas tactiles.
+ */
+function reloadPanelPage() {
+  if (reloadPanel) {
+    reloadPanel.disabled = true;
+    reloadPanel.textContent = "Reiniciando...";
+  }
+
+  window.location.reload();
+}
+
+/**
  * Ejecuta una solicitud JSON contra la API local y normaliza errores.
  *
  * @param {string} url Ruta HTTP a consultar.
@@ -1156,6 +1277,7 @@ async function loadDevices(options = {}) {
     }
 
     lastDevicePayload = data;
+    applyAccessOverridesToState();
 
     if (!data.router_reachable) {
       setNotice("No se pudo leer el router ahora mismo. Estoy mostrando historial local y equipos que respondan ping.", "warning");
@@ -1223,66 +1345,392 @@ async function clearHistory() {
 }
 
 /**
- * Lee el estado actual de la red de invitados 2.4 GHz.
+ * Devuelve los metadatos visibles de una banda WiFi.
+ *
+ * @param {string} band Banda tecnica recibida por API.
+ * @returns {{value: string, label: string, shortLabel: string}}
  */
-async function loadGuestConfig() {
-  setBoxNotice(guestNotice, "Leyendo configuracion de la red de invitados...");
+function wifiBandMeta(band) {
+  return WIFI_BANDS.find((item) => item.value === String(band)) || {
+    value: String(band),
+    label: `${band} GHz`,
+    shortLabel: String(band),
+  };
+}
 
-  try {
-    const data = await apiRequest("/api/guest?band=2.4");
-    guestEnabled.checked = Boolean(data.guest.habilitada);
-    guestSsid.value = data.guest.ssid || "";
-    guestPassword.value = data.guest.password || "";
+/**
+ * Obtiene los controles asociados a una tarjeta de red por banda.
+ *
+ * @param {string} kind Tipo de tarjeta: `primary` o `guest`.
+ * @param {string} band Banda WiFi.
+ * @returns {object} Referencias DOM de la tarjeta.
+ */
+function wifiBandControls(kind, band) {
+  const panel = document.querySelector(`[data-${kind}-band="${band}"]`);
 
-    if (metricGuestState) {
-      metricGuestState.textContent = data.guest.habilitada ? "Activa" : "Inactiva";
-    }
+  if (!panel) {
+    return {};
+  }
 
-    if (metricGuestSsid) {
-      metricGuestSsid.textContent = data.guest.ssid ? `SSID: ${data.guest.ssid}` : "SSID sin nombre";
-    }
+  return {
+    panel,
+    enabled: panel.querySelector(`[data-${kind}-field="enabled"]`),
+    hidden: panel.querySelector(`[data-${kind}-field="hidden"]`),
+    maxClients: panel.querySelector(`[data-${kind}-field="maxClients"]`),
+    ssid: panel.querySelector(`[data-${kind}-field="ssid"]`),
+    password: panel.querySelector(`[data-${kind}-field="password"]`),
+    save: panel.querySelector(`[data-${kind}-save]`),
+    state: panel.querySelector(`[data-${kind}-state]`),
+  };
+}
 
-    guestLoaded = true;
-    setBoxNotice(guestNotice, "");
-  } catch (error) {
-    if (metricGuestState) {
-      metricGuestState.textContent = "Sin lectura";
-    }
+/**
+ * Cambia el texto y bloqueo temporal de un boton de guardado.
+ *
+ * @param {HTMLButtonElement} button Boton a actualizar.
+ * @param {boolean} saving Verdadero mientras hay una solicitud en curso.
+ * @param {string} savingText Texto temporal.
+ */
+function setSavingButton(button, saving, savingText = "Guardando...") {
+  if (!button) {
+    return;
+  }
 
-    if (metricGuestSsid) {
-      metricGuestSsid.textContent = "Router no disponible";
-    }
+  if (!button.dataset.defaultText) {
+    button.dataset.defaultText = button.textContent;
+  }
 
-    setBoxNotice(guestNotice, `No se pudo leer el router: ${error.message}`, "warning");
+  button.disabled = saving;
+  button.textContent = saving ? savingText : button.dataset.defaultText;
+}
+
+/**
+ * Devuelve el limite de clientes listo para enviar, o `null` si no aplica.
+ *
+ * @param {HTMLInputElement} input Campo numerico de limite.
+ * @returns {number|null} Valor normalizado.
+ */
+function normalizedClientLimit(input) {
+  if (!input || input.disabled || input.value === "") {
+    return null;
+  }
+
+  const min = Number(input.min || 0);
+  const max = Number(input.max || 20);
+  const value = Math.trunc(Number(input.value));
+
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const normalized = Math.min(max, Math.max(min, value));
+  input.value = normalized;
+  return normalized;
+}
+
+/**
+ * Sincroniza un control de limite de usuarios con soporte reportado por API.
+ *
+ * @param {HTMLInputElement} input Campo numerico.
+ * @param {object} config Configuracion recibida desde el router.
+ */
+function populateClientLimit(input, config = {}) {
+  if (!input) {
+    return;
+  }
+
+  const supported = config.limite_clientes_soportado !== false;
+  const max = Number(config.limite_clientes_max || input.max || 20);
+  input.min = "0";
+  input.max = String(max);
+  input.disabled = !supported;
+  input.value = config.limite_clientes === null || config.limite_clientes === undefined
+    ? ""
+    : String(config.limite_clientes);
+  input.closest("label")?.classList.toggle("is-disabled", !supported);
+}
+
+/**
+ * Muestra u oculta el contenido de un campo de contrasena.
+ *
+ * @param {HTMLButtonElement} button Boton de ojo.
+ */
+function togglePasswordVisibility(button) {
+  const input = button.closest(".password-field")?.querySelector("input");
+
+  if (!input) {
+    return;
+  }
+
+  const visible = input.type === "password";
+  input.type = visible ? "text" : "password";
+  button.classList.toggle("is-visible", visible);
+  button.setAttribute("aria-label", visible ? "Ocultar contrasena" : "Mostrar contrasena");
+  button.title = visible ? "Ocultar contrasena" : "Mostrar contrasena";
+}
+
+/**
+ * Pinta el estado de una red primaria en su tarjeta.
+ *
+ * @param {HTMLElement} badge Indicador visual.
+ * @param {object} config Configuracion recibida desde el router.
+ */
+function updatePrimaryBadge(badge, config = {}) {
+  if (!badge) {
+    return;
+  }
+
+  if (config.habilitada === true) {
+    badge.textContent = "Activa";
+    badge.className = "badge success";
+    return;
+  }
+
+  if (config.habilitada === false) {
+    badge.textContent = "Inactiva";
+    badge.className = "badge warning";
+    return;
+  }
+
+  badge.textContent = "Sin estado";
+  badge.className = "badge warning";
+}
+
+/**
+ * Copia los valores del router a una tarjeta de red primaria.
+ *
+ * @param {string} band Banda WiFi.
+ * @param {object} primary Configuracion de red primaria.
+ */
+function populatePrimaryControls(band, primary = {}) {
+  const controls = wifiBandControls("primary", band);
+
+  if (controls.ssid) {
+    controls.ssid.value = primary.ssid || "";
+  }
+
+  if (controls.password) {
+    controls.password.value = primary.password || "";
+  }
+
+  if (controls.hidden) {
+    const supported = primary.oculto !== null && primary.oculto !== undefined;
+    controls.hidden.checked = Boolean(primary.oculto);
+    controls.hidden.disabled = !supported;
+    controls.hidden.closest("label")?.classList.toggle("is-disabled", !supported);
+  }
+
+  populateClientLimit(controls.maxClients, primary);
+  updatePrimaryBadge(controls.state, primary);
+}
+
+/**
+ * Copia los valores del router a una tarjeta de red de invitados.
+ *
+ * @param {string} band Banda WiFi.
+ * @param {object} guest Configuracion de red de invitados.
+ */
+function populateGuestControls(band, guest = {}) {
+  const controls = wifiBandControls("guest", band);
+
+  if (controls.enabled) {
+    controls.enabled.checked = Boolean(guest.habilitada);
+  }
+
+  if (controls.ssid) {
+    controls.ssid.value = guest.ssid || "";
+  }
+
+  if (controls.password) {
+    controls.password.value = guest.password || "";
+  }
+
+  if (controls.hidden) {
+    const supported = guest.oculto !== null && guest.oculto !== undefined;
+    controls.hidden.checked = Boolean(guest.oculto);
+    controls.hidden.disabled = !supported;
+    controls.hidden.closest("label")?.classList.toggle("is-disabled", !supported);
+  }
+
+  populateClientLimit(controls.maxClients, guest);
+}
+
+/**
+ * Actualiza la metrica de invitados del dashboard para 2.4 y 5 GHz.
+ */
+function updateGuestMetric() {
+  const stateText = WIFI_BANDS
+    .map((band) => {
+      const config = guestConfigs[band.value];
+      const state = config
+        ? config.habilitada ? "activa" : "inactiva"
+        : "sin lectura";
+      return `${band.shortLabel}: ${state}`;
+    })
+    .join(" / ");
+  const ssidText = WIFI_BANDS
+    .map((band) => {
+      const ssid = guestConfigs[band.value]?.ssid;
+      return ssid ? `${band.shortLabel}: ${ssid}` : "";
+    })
+    .filter(Boolean)
+    .join(" / ");
+
+  if (metricGuestState) {
+    metricGuestState.textContent = stateText || "Sin lectura";
+  }
+
+  if (metricGuestSsid) {
+    metricGuestSsid.textContent = ssidText || "SSID sin leer";
   }
 }
 
 /**
- * Envia al servidor la configuracion visible de la red de invitados.
+ * Lee el estado actual de las redes primarias 2.4 y 5 GHz.
  */
-async function updateGuestConfig() {
-  saveGuest.disabled = true;
-  saveGuest.textContent = "Guardando...";
-  setBoxNotice(guestNotice, "Enviando cambios al router...");
+async function loadPrimaryConfigs() {
+  setBoxNotice(primaryNotice, "Leyendo configuracion de las redes principales...");
+
+  const failures = [];
+
+  await Promise.all(WIFI_BANDS.map(async (band) => {
+    try {
+      const data = await apiRequest(`/api/primary?band=${encodeURIComponent(band.value)}`);
+      populatePrimaryControls(band.value, data.primary || {});
+    } catch (error) {
+      failures.push(`${band.label}: ${error.message}`);
+      updatePrimaryBadge(wifiBandControls("primary", band.value).state, {});
+    }
+  }));
+
+  primaryLoaded = failures.length === 0;
+
+  if (failures.length > 0) {
+    setBoxNotice(primaryNotice, `No se pudo leer el router: ${failures.join("; ")}`, "warning");
+    return;
+  }
+
+  setBoxNotice(primaryNotice, "");
+}
+
+/**
+ * Envia al servidor la configuracion visible de una red primaria.
+ *
+ * @param {string} band Banda WiFi.
+ */
+async function updatePrimaryConfig(band) {
+  const controls = wifiBandControls("primary", band);
+  const meta = wifiBandMeta(band);
+
+  setSavingButton(controls.save, true);
+  setBoxNotice(primaryNotice, `Enviando cambios de la red primaria ${meta.label}...`);
 
   try {
+    const body = {
+      band,
+      ssid: controls.ssid?.value || "",
+      password: controls.password?.value || "",
+    };
+    const maxClients = normalizedClientLimit(controls.maxClients);
+
+    if (controls.hidden && !controls.hidden.disabled) {
+      body.hidden = Boolean(controls.hidden.checked);
+    }
+
+    if (maxClients !== null) {
+      body.max_clients = maxClients;
+    }
+
+    const data = await apiRequest("/api/primary", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    primaryLoaded = false;
+    await loadPrimaryConfigs();
+
+    if (primaryLoaded) {
+      setBoxNotice(primaryNotice, data.message || "Cambios guardados.", "success");
+    }
+  } catch (error) {
+    setBoxNotice(primaryNotice, error.message, "warning");
+  } finally {
+    setSavingButton(controls.save, false);
+  }
+}
+
+/**
+ * Lee el estado actual de las redes de invitados 2.4 y 5 GHz.
+ */
+async function loadGuestConfig() {
+  setBoxNotice(guestNotice, "Leyendo configuracion de las redes de invitados...");
+
+  const failures = [];
+
+  await Promise.all(WIFI_BANDS.map(async (band) => {
+    try {
+      const data = await apiRequest(`/api/guest?band=${encodeURIComponent(band.value)}`);
+      guestConfigs[band.value] = data.guest || {};
+      populateGuestControls(band.value, guestConfigs[band.value]);
+    } catch (error) {
+      delete guestConfigs[band.value];
+      failures.push(`${band.label}: ${error.message}`);
+    }
+  }));
+
+  updateGuestMetric();
+  guestLoaded = failures.length === 0;
+
+  if (failures.length > 0) {
+    setBoxNotice(guestNotice, `No se pudo leer el router: ${failures.join("; ")}`, "warning");
+    return;
+  }
+
+  setBoxNotice(guestNotice, "");
+}
+
+/**
+ * Envia al servidor la configuracion visible de una red de invitados.
+ *
+ * @param {string} band Banda WiFi.
+ */
+async function updateGuestConfig(band) {
+  const controls = wifiBandControls("guest", band);
+  const meta = wifiBandMeta(band);
+
+  setSavingButton(controls.save, true);
+  setBoxNotice(guestNotice, `Enviando cambios de invitados ${meta.label}...`);
+
+  try {
+    const body = {
+      band,
+      enabled: Boolean(controls.enabled?.checked),
+      ssid: controls.ssid?.value || "",
+      password: controls.password?.value || "",
+    };
+    const maxClients = normalizedClientLimit(controls.maxClients);
+
+    if (controls.hidden && !controls.hidden.disabled) {
+      body.hidden = Boolean(controls.hidden.checked);
+    }
+
+    if (maxClients !== null) {
+      body.max_clients = maxClients;
+    }
+
     const data = await apiRequest("/api/guest", {
       method: "POST",
-      body: JSON.stringify({
-        band: "2.4",
-        enabled: guestEnabled.checked,
-        ssid: guestSsid.value,
-        password: guestPassword.value,
-      }),
+      body: JSON.stringify(body),
     });
-    setBoxNotice(guestNotice, data.message || "Cambios guardados.", "success");
     guestLoaded = false;
     await loadGuestConfig();
+
+    if (guestLoaded) {
+      setBoxNotice(guestNotice, data.message || "Cambios guardados.", "success");
+    }
   } catch (error) {
     setBoxNotice(guestNotice, error.message, "warning");
   } finally {
-    saveGuest.disabled = false;
-    saveGuest.textContent = "Guardar cambios";
+    setSavingButton(controls.save, false);
   }
 }
 
@@ -1306,6 +1754,7 @@ async function runScan() {
     }
 
     lastDevicePayload = data;
+    applyAccessOverridesToState();
     setBoxNotice(scanNotice, "Busqueda terminada. Los usuarios encontrados ya estan disponibles en el panel.", "success");
     renderDevices();
     renderDeviceHistory();
@@ -1412,7 +1861,8 @@ async function applySiteAction(profileId, action) {
  * @returns {object|undefined} Dispositivo coincidente.
  */
 function getDeviceByMac(mac) {
-  return devices.find((device) => device.mac === mac);
+  const normalizedMac = canonicalMac(mac);
+  return devices.find((device) => canonicalMac(device.mac) === normalizedMac);
 }
 
 /**
@@ -1423,10 +1873,17 @@ function getDeviceByMac(mac) {
 function openActionModal(button) {
   const mac = button.dataset.mac;
   const action = button.dataset.action;
-  const device = getDeviceByMac(mac) || {
+  const knownDevice = getDeviceByMac(mac);
+  const isBlocked = action === "unblock" || blockedMacs.some((blockedMac) => (
+    canonicalMac(blockedMac) === canonicalMac(mac)
+  ));
+  const device = knownDevice ? {
+    ...knownDevice,
+    blocked: Boolean(knownDevice.blocked || isBlocked),
+  } : {
     mac,
     name: button.dataset.deviceName || mac,
-    blocked: blockedMacs.includes(mac),
+    blocked: isBlocked,
   };
 
   if (!device.mac) {
@@ -1445,7 +1902,7 @@ function openActionModal(button) {
     modalTitle.textContent = "Olvidar dispositivo";
     modalCopy.textContent = "Se borrara el alias, el historial local y el registro guardado para este equipo. Si todavia esta conectado, reaparecera en la siguiente lectura.";
     modalConfirm.textContent = "Olvidar";
-  } else if (device.blocked) {
+  } else if (action === "unblock" || device.blocked) {
     modalTitle.textContent = "Desbloquear dispositivo";
     modalCopy.textContent = "Este equipo podra volver a usar el WiFi despues de confirmar.";
     modalConfirm.textContent = "Desbloquear";
@@ -1477,6 +1934,7 @@ async function confirmAction() {
 
   const originalConfirmText = modalConfirm.textContent;
   let successMessage = "";
+  let refreshImmediately = true;
 
   modalConfirm.disabled = true;
   modalConfirm.textContent = "Procesando...";
@@ -1497,18 +1955,24 @@ async function confirmAction() {
       });
       successMessage = "Dispositivo eliminado del historial local.";
     } else {
-      const path = device.blocked ? "/api/devices/unblock" : "/api/devices/block";
+      const shouldUnblock = action === "unblock" || device.blocked;
+      const path = shouldUnblock ? "/api/devices/unblock" : "/api/devices/block";
       const data = await apiRequest(path, {
         method: "POST",
         body: JSON.stringify({ mac: device.mac }),
       });
+      setLocalAccessState(data.mac || device.mac, !shouldUnblock);
       successMessage = data.message || (
-        device.blocked ? "Usuario desbloqueado." : "Usuario bloqueado."
+        shouldUnblock ? "Usuario desbloqueado." : "Usuario bloqueado."
       );
+      refreshImmediately = false;
+      window.setTimeout(() => loadDevices({ silent: true }), 4000);
     }
 
     closeActionModal();
-    await loadDevices();
+    if (refreshImmediately) {
+      await loadDevices();
+    }
     setNotice(successMessage, "success");
     setBoxNotice(accessNotice, successMessage, "success");
   } catch (error) {
@@ -1532,6 +1996,13 @@ quickLinks.forEach((button) => {
 
 // Delegacion global de clics para botones creados dinamicamente.
 document.addEventListener("click", (event) => {
+  const passwordToggle = event.target.closest("[data-password-toggle]");
+
+  if (passwordToggle) {
+    togglePasswordVisibility(passwordToggle);
+    return;
+  }
+
   const siteActionButton = event.target.closest("[data-site-action]");
 
   if (siteActionButton) {
@@ -1587,10 +2058,16 @@ deviceSearch.addEventListener("input", renderDevices);
 deviceTypeFilter.addEventListener("change", renderDevices);
 deviceStatusFilter.addEventListener("change", renderDevices);
 refreshDevices.addEventListener("click", () => loadDevices());
+reloadPanel?.addEventListener("click", reloadPanelPage);
 autoRefreshDevices.addEventListener("click", toggleAutoRefresh);
 clearDeviceHistory.addEventListener("click", clearHistory);
 blockSelectedUser.addEventListener("click", blockSelectedAccessUser);
-saveGuest.addEventListener("click", updateGuestConfig);
+primarySaveButtons.forEach((button) => {
+  button.addEventListener("click", () => updatePrimaryConfig(button.dataset.primarySave));
+});
+guestSaveButtons.forEach((button) => {
+  button.addEventListener("click", () => updateGuestConfig(button.dataset.guestSave));
+});
 startScan.addEventListener("click", runScan);
 refreshParentalSites.addEventListener("click", loadSiteProfiles);
 

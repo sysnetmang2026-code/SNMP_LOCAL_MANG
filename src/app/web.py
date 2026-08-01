@@ -575,6 +575,11 @@ class WebHandler(BaseHTTPRequestHandler):
             self.handle_guest_config(params.get("band", ["2.4"])[0])
             return
 
+        if parsed.path == "/api/primary":
+            params = parse_qs(parsed.query)
+            self.handle_primary_config(params.get("band", ["2.4"])[0])
+            return
+
         if parsed.path == "/api/scan/devices":
             self.handle_scanned_devices()
             return
@@ -614,6 +619,10 @@ class WebHandler(BaseHTTPRequestHandler):
 
             if parsed.path == "/api/guest":
                 self.handle_update_guest()
+                return
+
+            if parsed.path == "/api/primary":
+                self.handle_update_primary()
                 return
 
             if parsed.path == "/api/scan":
@@ -757,6 +766,19 @@ class WebHandler(BaseHTTPRequestHandler):
             "ok": True,
             "band": band,
             "guest": guest,
+        })
+
+    def handle_primary_config(self, band):
+        """Responde con la configuracion de red primaria de una banda."""
+
+        with ROUTER_OPERATION_LOCK:
+            router = crear_cliente_router()
+            primary = router.obtener_config_red_primaria(band=band)
+
+        self.respond_json({
+            "ok": True,
+            "band": band,
+            "primary": primary,
         })
 
     def handle_scanned_devices(self):
@@ -966,19 +988,57 @@ class WebHandler(BaseHTTPRequestHandler):
 
         with ROUTER_OPERATION_LOCK:
             router = crear_cliente_router()
-
-            if enabled:
-                router.activar_red_invitados(
-                    ssid=payload.get("ssid") or None,
-                    password=payload.get("password") or None,
-                    band=band,
-                )
-                message = "Red de invitados activada."
-            else:
-                router.desactivar_red_invitados(band=band)
-                message = "Red de invitados desactivada."
+            router.configurar_red_invitados(
+                ssid=payload.get("ssid") or None,
+                password=payload.get("password") or None,
+                ocultar_ssid=bool(payload.get("hidden")) if "hidden" in payload else None,
+                limite_clientes=payload.get("max_clients")
+                if "max_clients" in payload
+                else None,
+                habilitada=enabled,
+                band=band,
+            )
+            message = "Red de invitados activada." if enabled else "Red de invitados desactivada."
 
         self.respond_json({"ok": True, "message": message})
+
+    def handle_update_primary(self):
+        """Actualiza SSID, clave WPA y visibilidad de una red primaria."""
+
+        payload = self.read_json()
+        band = payload.get("band", "2.4")
+        updates = {}
+
+        if "ssid" in payload:
+            updates["ssid"] = payload.get("ssid")
+
+        if payload.get("password"):
+            updates["password"] = payload.get("password")
+
+        if "hidden" in payload:
+            updates["ocultar_ssid"] = bool(payload.get("hidden"))
+
+        if "max_clients" in payload:
+            updates["limite_clientes"] = payload.get("max_clients")
+
+        if "enabled" in payload:
+            updates["habilitada"] = bool(payload.get("enabled"))
+
+        if not updates:
+            self.respond_json({
+                "ok": False,
+                "error": "No se recibieron cambios para aplicar.",
+            }, status=400)
+            return
+
+        with ROUTER_OPERATION_LOCK:
+            router = crear_cliente_router()
+            router.configurar_red_primaria(band=band, **updates)
+
+        self.respond_json({
+            "ok": True,
+            "message": f"Red primaria {band} GHz actualizada.",
+        })
 
     def handle_scan(self):
         """Ejecuta Nmap sobre la subred local y devuelve dispositivos guardados."""

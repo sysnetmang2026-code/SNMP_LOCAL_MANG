@@ -23,6 +23,7 @@ from validators import (
 
 
 WIRELESS_MAC_FIELDS = [f"WirelessMac{number:02d}" for number in range(1, 21)]
+WIFI_CLIENT_LIMIT_MAX = 20
 # Paginas que cambian la banda activa antes de leer formularios WiFi.
 BAND_URLS = {
     "2.4": "/wlan24G.asp",
@@ -38,7 +39,7 @@ GUEST_NETWORK_FIELDS = {
 }
 
 # Los firmwares KAON no siempre usan los mismos nombres. Estas tuplas agrupan
-# variantes equivalentes para SSID, clave, ocultamiento y estado de red primaria.
+# variantes equivalentes para SSID, clave, ocultamiento, limite y estado.
 PRIMARY_SSID_FIELDS = (
     "ServiceSetIdentifier",
     "PrimaryServiceSetIdentifier",
@@ -63,6 +64,48 @@ PRIMARY_HIDE_FIELDS = (
 PRIMARY_ENABLE_FIELDS = (
     "PrimaryNetworkEnable",
     "PrimaryNetworkEnabled",
+)
+PRIMARY_CLIENT_LIMIT_FIELDS = (
+    "MaxAssociatedDevices",
+    "MaxAssociatedClients",
+    "MaxAssoc",
+    "MaxAssocClients",
+    "MaxClients",
+    "MaxSta",
+    "MaxStaNum",
+    "MaxStations",
+    "StationLimit",
+    "StaLimit",
+    "AssociatedClientsLimit",
+    "WlMaxAssoc",
+    "wlMaxAssoc",
+)
+GUEST_HIDE_FIELDS = (
+    "ClosedNetworkGuest",
+    "GuestClosedNetwork",
+    "HideAccessPointGN",
+    "HideSSIDGN",
+    "HideSsidGN",
+    "GuestBroadcastSSID",
+    "SSIDBroadcastGN",
+)
+GUEST_CLIENT_LIMIT_FIELDS = (
+    "MaxAssociatedDevicesGN",
+    "MaxAssociatedClientsGN",
+    "MaxAssocGN",
+    "MaxAssocClientsGN",
+    "MaxClientsGN",
+    "MaxStaGN",
+    "MaxStaNumGN",
+    "MaxStationsGN",
+    "StationLimitGN",
+    "StaLimitGN",
+    "AssociatedClientsLimitGN",
+    "GuestMaxAssociatedDevices",
+    "GuestMaxAssociatedClients",
+    "GuestMaxClients",
+    "WlMaxAssocGN",
+    "wlMaxAssocGN",
 )
 
 PARENTAL_CONTROL_PROTOCOLS = {
@@ -1159,22 +1202,31 @@ class KaonRouterClient:
         return texto[:48]
 
     def obtener_config_red_invitados(self, band="2.4"):
-        """Devuelve estado, SSID y clave WPA de la red de invitados."""
+        """Devuelve estado, SSID, clave WPA, visibilidad y limite de invitados."""
 
         payload = self._obtener_payload_red_invitados(band=band)
+        hide_field = self._buscar_campo(payload, GUEST_HIDE_FIELDS)
+        limit_field = self._buscar_campo(payload, GUEST_CLIENT_LIMIT_FIELDS)
 
         return {
             "habilitada": payload.get("GuestNetworkEnable") == "1",
             "ssid": payload.get("GuestServiceSetIdentifier", ""),
             "password": payload.get("WpaPreSharedKeyGN", ""),
+            "oculto": self._valor_ocultar_ssid(payload[hide_field], hide_field)
+            if hide_field
+            else None,
+            "limite_clientes": self._obtener_limite_clientes(payload, limit_field),
+            "limite_clientes_soportado": bool(limit_field),
+            "limite_clientes_max": WIFI_CLIENT_LIMIT_MAX,
         }
 
     def obtener_config_red_primaria(self, band="2.4"):
-        """Devuelve estado, SSID, clave WPA y visibilidad de red primaria."""
+        """Devuelve estado, SSID, clave WPA, visibilidad y limite primario."""
 
         payload = self._obtener_payload_red_primaria(band=band)
         enable_field = self._buscar_campo(payload, PRIMARY_ENABLE_FIELDS)
         hide_field = self._buscar_campo(payload, PRIMARY_HIDE_FIELDS)
+        limit_field = self._buscar_campo(payload, PRIMARY_CLIENT_LIMIT_FIELDS)
 
         return {
             "habilitada": payload.get(enable_field) == "1" if enable_field else None,
@@ -1183,6 +1235,9 @@ class KaonRouterClient:
             "oculto": self._valor_ocultar_ssid(payload[hide_field], hide_field)
             if hide_field
             else None,
+            "limite_clientes": self._obtener_limite_clientes(payload, limit_field),
+            "limite_clientes_soportado": bool(limit_field),
+            "limite_clientes_max": WIFI_CLIENT_LIMIT_MAX,
         }
 
     def cambiar_ssid_red_primaria(self, ssid, band="2.4", network_index=0):
@@ -1212,6 +1267,28 @@ class KaonRouterClient:
             network_index=network_index,
         )
 
+    def configurar_red_primaria(
+        self,
+        ssid=None,
+        password=None,
+        ocultar_ssid=None,
+        limite_clientes=None,
+        habilitada=None,
+        band="2.4",
+        network_index=0,
+    ):
+        """Aplica SSID, clave WPA, visibilidad, limite y estado."""
+
+        return self._aplicar_config_red_primaria(
+            ssid=ssid,
+            password=password,
+            ocultar_ssid=ocultar_ssid,
+            limite_clientes=limite_clientes,
+            habilitada=habilitada,
+            band=band,
+            network_index=network_index,
+        )
+
     def activar_red_primaria(self, band="2.4", network_index=0):
         """Marca como habilitada la red primaria de la banda indicada."""
 
@@ -1235,6 +1312,7 @@ class KaonRouterClient:
         ssid=None,
         password=None,
         ocultar_ssid=None,
+        limite_clientes=None,
         habilitada=None,
         band="2.4",
         network_index=0,
@@ -1277,6 +1355,17 @@ class KaonRouterClient:
 
             payload[hide_field] = self._valor_para_ocultar_ssid(ocultar_ssid, hide_field)
 
+        if limite_clientes is not None:
+            limit_field = self._buscar_campo(payload, PRIMARY_CLIENT_LIMIT_FIELDS)
+
+            if not limit_field:
+                self._error_campo_no_encontrado(
+                    "limite de usuarios",
+                    PRIMARY_CLIENT_LIMIT_FIELDS,
+                )
+
+            payload[limit_field] = self._validar_limite_clientes(limite_clientes)
+
         self._preparar_payload_red_primaria(payload, network_index)
 
         try:
@@ -1288,6 +1377,7 @@ class KaonRouterClient:
                 ssid,
                 password,
                 ocultar_ssid,
+                limite_clientes,
                 habilitada,
                 band,
             ):
@@ -1303,8 +1393,17 @@ class KaonRouterClient:
 
         return True
 
-    def activar_red_invitados(self, ssid=None, password=None, band="2.4", network_index=0):
-        """Habilita la red de invitados y conserva o actualiza SSID/clave."""
+    def configurar_red_invitados(
+        self,
+        ssid=None,
+        password=None,
+        ocultar_ssid=None,
+        limite_clientes=None,
+        habilitada=None,
+        band="2.4",
+        network_index=0,
+    ):
+        """Aplica estado, SSID, clave WPA, visibilidad y limite de invitados."""
 
         payload = self._obtener_payload_red_invitados(band=band)
 
@@ -1316,17 +1415,36 @@ class KaonRouterClient:
             self._validar_password_wpa(password)
             payload["WpaPreSharedKeyGN"] = password
 
-        if not payload.get("WpaPreSharedKeyGN"):
+        if ocultar_ssid is not None:
+            hide_field = self._buscar_campo(payload, GUEST_HIDE_FIELDS)
+
+            if not hide_field:
+                self._error_campo_no_encontrado("ocultar SSID", GUEST_HIDE_FIELDS)
+
+            payload[hide_field] = self._valor_para_ocultar_ssid(ocultar_ssid, hide_field)
+
+        if limite_clientes is not None:
+            limit_field = self._buscar_campo(payload, GUEST_CLIENT_LIMIT_FIELDS)
+
+            if not limit_field:
+                self._error_campo_no_encontrado(
+                    "limite de usuarios invitados",
+                    GUEST_CLIENT_LIMIT_FIELDS,
+                )
+
+            payload[limit_field] = self._validar_limite_clientes(limite_clientes)
+
+        if habilitada is not None:
+            payload["GuestNetworkEnable"] = "1" if habilitada else "0"
+
+        if payload.get("GuestNetworkEnable") == "1" and not payload.get("WpaPreSharedKeyGN"):
             raise ValueError("La red de invitados no tiene contrasena WPA configurada.")
+
+        if payload.get("GuestNetworkEnable") == "1":
+            self._preparar_seguridad_red_invitados(payload)
 
         payload["CurrentNetworks"] = str(network_index)
         payload["MbssIndexChanged"] = "0"
-        payload["GuestNetworkEnable"] = "1"
-        payload["WpaAuthGN"] = "0"
-        payload["WpaPskAuthGN"] = "1"
-        payload["Wpa2AuthGN"] = "0"
-        payload["Wpa2PskAuthGN"] = "1"
-        payload["WpaEncryptionGN"] = payload.get("WpaEncryptionGN") or "2"
         payload["GenerateWepKeysGN"] = "0"
         payload["RestoreGuestNetworkDefaults"] = "0"
         payload["commitwlanGuestNetwork"] = "1"
@@ -1336,7 +1454,14 @@ class KaonRouterClient:
         except requests.RequestException as error:
             self._reiniciar_sesion()
 
-            if self._red_invitados_fue_activada(payload, band):
+            if self._config_red_invitados_fue_aplicada(
+                habilitada,
+                ssid,
+                password,
+                ocultar_ssid,
+                limite_clientes,
+                band,
+            ):
                 return True
 
             if isinstance(error, (Timeout, requests.ConnectionError)):
@@ -1349,40 +1474,43 @@ class KaonRouterClient:
 
         return True
 
+    def activar_red_invitados(
+        self,
+        ssid=None,
+        password=None,
+        ocultar_ssid=None,
+        limite_clientes=None,
+        band="2.4",
+        network_index=0,
+    ):
+        """Habilita la red de invitados y conserva o actualiza SSID/clave."""
+
+        return self.configurar_red_invitados(
+            ssid=ssid,
+            password=password,
+            ocultar_ssid=ocultar_ssid,
+            limite_clientes=limite_clientes,
+            habilitada=True,
+            band=band,
+            network_index=network_index,
+        )
+
     def desactivar_red_invitados(self, band="2.4", network_index=0):
         """Deshabilita la red de invitados de la banda seleccionada."""
 
-        payload = self._obtener_payload_red_invitados(band=band)
-        payload["CurrentNetworks"] = str(network_index)
-        payload["MbssIndexChanged"] = "0"
-        payload["GuestNetworkEnable"] = "0"
-        payload["GenerateWepKeysGN"] = "0"
-        payload["RestoreGuestNetworkDefaults"] = "0"
-        payload["commitwlanGuestNetwork"] = "1"
-
-        try:
-            response = self._post_autenticado(self.guest_network_form_url, payload)
-        except requests.RequestException as error:
-            self._reiniciar_sesion()
-
-            if self._red_invitados_fue_desactivada(band):
-                return True
-
-            if isinstance(error, Timeout) or "Read timed out" in str(error):
-                return True
-
-            raise
-
-        if response.status_code not in (200, 302):
-            raise RuntimeError(f"El router rechazo el cambio: HTTP {response.status_code}")
-
-        return True
+        return self.configurar_red_invitados(
+            habilitada=False,
+            band=band,
+            network_index=network_index,
+        )
 
     def esperar_config_red_invitados(
         self,
         habilitada=None,
         ssid=None,
         password=None,
+        oculto=None,
+        limite_clientes=None,
         band="2.4",
         timeout=25,
         interval=2,
@@ -1402,7 +1530,14 @@ class KaonRouterClient:
 
             ultima_config = config
 
-            if self._config_red_invitados_coincide(config, habilitada, ssid, password):
+            if self._config_red_invitados_coincide(
+                config,
+                habilitada,
+                ssid,
+                password,
+                oculto,
+                limite_clientes,
+            ):
                 return config
 
             time.sleep(interval)
@@ -1458,7 +1593,7 @@ class KaonRouterClient:
                 continue
 
             if input_type == "checkbox" and not field.has_attr("checked"):
-                if name in PRIMARY_HIDE_FIELDS:
+                if name in PRIMARY_HIDE_FIELDS or name in GUEST_HIDE_FIELDS:
                     payload[name] = "0"
 
                 continue
@@ -1518,6 +1653,7 @@ class KaonRouterClient:
         ssid=None,
         password=None,
         oculto=None,
+        limite_clientes=None,
         band="2.4",
         timeout=25,
         interval=2,
@@ -1543,6 +1679,7 @@ class KaonRouterClient:
                 ssid,
                 password,
                 oculto,
+                limite_clientes,
             ):
                 return config
 
@@ -1550,7 +1687,15 @@ class KaonRouterClient:
 
         return ultima_config
 
-    def _config_red_primaria_fue_aplicada(self, ssid, password, oculto, habilitada, band):
+    def _config_red_primaria_fue_aplicada(
+        self,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+        habilitada,
+        band,
+    ):
         """Verifica si el router refleja cambios enviados a red primaria."""
 
         time.sleep(1)
@@ -1566,9 +1711,18 @@ class KaonRouterClient:
             ssid,
             password,
             oculto,
+            limite_clientes,
         )
 
-    def _config_red_primaria_coincide(self, config, habilitada, ssid, password, oculto):
+    def _config_red_primaria_coincide(
+        self,
+        config,
+        habilitada,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+    ):
         """Compara una configuracion primaria contra valores esperados."""
 
         if habilitada is not None and config["habilitada"] != habilitada:
@@ -1583,9 +1737,50 @@ class KaonRouterClient:
         if oculto is not None and config["oculto"] != oculto:
             return False
 
+        if (
+            limite_clientes is not None
+            and config["limite_clientes"] != int(self._validar_limite_clientes(limite_clientes))
+        ):
+            return False
+
         return True
 
-    def _config_red_invitados_coincide(self, config, habilitada, ssid, password):
+    def _config_red_invitados_fue_aplicada(
+        self,
+        habilitada,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+        band,
+    ):
+        """Verifica si el router refleja cambios enviados a red de invitados."""
+
+        time.sleep(1)
+
+        try:
+            current = self.obtener_config_red_invitados(band=band)
+        except (requests.RequestException, RuntimeError):
+            return False
+
+        return self._config_red_invitados_coincide(
+            current,
+            habilitada,
+            ssid,
+            password,
+            oculto,
+            limite_clientes,
+        )
+
+    def _config_red_invitados_coincide(
+        self,
+        config,
+        habilitada,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+    ):
         """Compara una configuracion de invitados contra valores esperados."""
 
         if habilitada is not None and config["habilitada"] != habilitada:
@@ -1595,6 +1790,15 @@ class KaonRouterClient:
             return False
 
         if password is not None and config["password"] != password:
+            return False
+
+        if oculto is not None and config["oculto"] != oculto:
+            return False
+
+        if (
+            limite_clientes is not None
+            and config["limite_clientes"] != int(self._validar_limite_clientes(limite_clientes))
+        ):
             return False
 
         return True
@@ -1612,6 +1816,21 @@ class KaonRouterClient:
 
         payload["commitwlanPrimaryNetwork"] = "1"
 
+    def _preparar_seguridad_red_invitados(self, payload):
+        """Fuerza WPA/WPA2-PSK con AES en redes de invitados habilitadas."""
+
+        payload["WpaAuthGN"] = "0"
+        payload["WpaPskAuthGN"] = "1"
+        payload["Wpa2AuthGN"] = "0"
+        payload["Wpa2PskAuthGN"] = "1"
+        payload["WpaEncryptionGN"] = "2"
+
+        if "AutoSecurityGN" in payload:
+            payload["AutoSecurityGN"] = "1"
+
+        if "WepEncryptionGN" in payload:
+            payload["WepEncryptionGN"] = "0"
+
     def _buscar_campo(self, payload, field_names):
         """Devuelve el primer nombre de campo presente en `payload`."""
 
@@ -1626,6 +1845,22 @@ class KaonRouterClient:
 
         field_name = self._buscar_campo(payload, field_names)
         return payload.get(field_name, "") if field_name else ""
+
+    def _obtener_limite_clientes(self, payload, field_name):
+        """Lee el limite de clientes de un campo opcional del firmware."""
+
+        if not field_name:
+            return None
+
+        value = str(payload.get(field_name, "")).strip()
+
+        if not value:
+            return None
+
+        try:
+            return int(value)
+        except ValueError:
+            return None
 
     def _valor_ocultar_ssid(self, value, field_name):
         """Interpreta el valor del campo de visibilidad como booleano `oculto`."""
@@ -1679,3 +1914,18 @@ class KaonRouterClient:
 
         if len(password) < 8 or len(password) > 64:
             raise ValueError("La contrasena WPA debe tener entre 8 y 64 caracteres.")
+
+    def _validar_limite_clientes(self, limite_clientes):
+        """Valida el limite de usuarios conectados por interfaz WiFi."""
+
+        try:
+            limite = int(limite_clientes)
+        except (TypeError, ValueError) as error:
+            raise ValueError("El limite de usuarios debe ser un numero.") from error
+
+        if limite < 0 or limite > WIFI_CLIENT_LIMIT_MAX:
+            raise ValueError(
+                f"El limite de usuarios debe estar entre 0 y {WIFI_CLIENT_LIMIT_MAX}."
+            )
+
+        return str(limite)
