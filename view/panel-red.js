@@ -85,6 +85,7 @@ let lastDevicePayload = null;
 let hasBlockedSnapshot = false;
 let radarRevealTimer = null;
 let accessStateOverrides = new Map();
+let siteActionPreviewTimer = null;
 
 const DEVICE_REFRESH_INTERVAL_MS = 10000;
 const ACCESS_OVERRIDE_TTL_MS = 30000;
@@ -393,6 +394,66 @@ function siteStateLabel(state) {
 }
 
 /**
+ * Describe la accion de un boton de control parental antes de aplicarla.
+ *
+ * @param {string} action Accion solicitada: `block` o `unblock`.
+ * @param {object} profile Perfil recibido desde la API.
+ * @returns {string} Texto corto para tooltip y confirmacion tactil.
+ */
+function siteActionCopy(action, profile) {
+  if (action === "block") {
+    return `Creara reglas para bloquear ${profile.name} en el alcance elegido.`;
+  }
+
+  return `Quitara las reglas de ${profile.name} para el alcance elegido.`;
+}
+
+/**
+ * Indica si el dispositivo usa interaccion tactil sin hover estable.
+ *
+ * @returns {boolean} Verdadero si conviene mostrar vista previa al primer toque.
+ */
+function prefersTouchPreview() {
+  return window.matchMedia("(hover: none), (pointer: coarse)").matches;
+}
+
+/**
+ * Muestra una ayuda breve antes de ejecutar una accion tactil sensible.
+ *
+ * @param {HTMLElement} button Boton de sitio tocado.
+ */
+function previewSiteAction(button) {
+  clearTimeout(siteActionPreviewTimer);
+  const card = button.closest(".site-card");
+
+  document.querySelectorAll(".site-action.is-previewing").forEach((element) => {
+    if (element !== button) {
+      element.classList.remove("is-previewing");
+    }
+  });
+
+  document.querySelectorAll(".site-card.is-previewing").forEach((element) => {
+    if (element !== card) {
+      element.classList.remove("is-previewing");
+    }
+  });
+
+  button.classList.add("is-previewing");
+
+  if (card) {
+    card.classList.add("is-previewing");
+  }
+
+  siteActionPreviewTimer = setTimeout(() => {
+    button.classList.remove("is-previewing");
+
+    if (card) {
+      card.classList.remove("is-previewing");
+    }
+  }, 2600);
+}
+
+/**
  * Renderiza el icono visible de un perfil, con texto de respaldo.
  *
  * @param {object} profile Perfil recibido desde la API.
@@ -422,6 +483,8 @@ function siteMark(profile) {
  */
 function siteCard(profile) {
   const state = profile.state || "available";
+  const blockCopy = siteActionCopy("block", profile);
+  const unblockCopy = siteActionCopy("unblock", profile);
 
   return `
     <article class="site-card ${state === "blocked" ? "is-blocked" : ""}">
@@ -437,11 +500,11 @@ function siteCard(profile) {
         <small>${escapeHtml(profile.blocked_count || 0)}/${escapeHtml(profile.domains_count || 0)} reglas</small>
       </div>
       <div class="site-actions">
-        <button class="site-action block" type="button" data-site-action="block" data-profile-id="${escapeHtml(profile.id)}">
+        <button class="site-action block" type="button" data-site-action="block" data-profile-id="${escapeHtml(profile.id)}" data-action-copy="${escapeHtml(blockCopy)}" aria-label="${escapeHtml(blockCopy)}">
           <span aria-hidden="true"></span>
           Bloquear
         </button>
-        <button class="site-action unblock" type="button" data-site-action="unblock" data-profile-id="${escapeHtml(profile.id)}">
+        <button class="site-action unblock" type="button" data-site-action="unblock" data-profile-id="${escapeHtml(profile.id)}" data-action-copy="${escapeHtml(unblockCopy)}" aria-label="${escapeHtml(unblockCopy)}">
           <span aria-hidden="true"></span>
           Desbloquear
         </button>
@@ -2006,6 +2069,14 @@ document.addEventListener("click", (event) => {
   const siteActionButton = event.target.closest("[data-site-action]");
 
   if (siteActionButton) {
+    if (prefersTouchPreview() && !siteActionButton.classList.contains("is-previewing")) {
+      event.preventDefault();
+      previewSiteAction(siteActionButton);
+      return;
+    }
+
+    siteActionButton.classList.remove("is-previewing");
+    siteActionButton.closest(".site-card")?.classList.remove("is-previewing");
     applySiteAction(siteActionButton.dataset.profileId, siteActionButton.dataset.siteAction);
     return;
   }

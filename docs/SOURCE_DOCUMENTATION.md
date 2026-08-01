@@ -189,7 +189,9 @@ modal reutilizable. El contenido dinamico se llena desde `panel-red.js`.
 
 Hoja de estilos del panel. Incluye tokens de color, layout de escritorio,
 navegacion movil, tarjetas de dispositivos, formularios, avisos, tooltips,
-modal y media queries para pantallas pequenas.
+modal y media queries para pantallas pequenas. La vista de control parental usa
+tarjetas animadas tipo dispositivo, crecimiento en hover y pulso tactil en
+moviles.
 
 ### `view/panel-red.js`
 
@@ -197,7 +199,8 @@ Controlador del panel. Gestiona navegacion entre vistas, estado en memoria,
 llamadas `fetch` a `/api/`, renderizado seguro de tarjetas, filtros de busqueda,
 red primaria e invitados por banda, escaneo Nmap y modal de acciones por
 dispositivo. Tambien alterna la visibilidad local de las claves WPA desde los
-botones de ojo.
+botones de ojo y muestra una vista previa tactil antes de ejecutar bloqueos de
+control parental en moviles.
 
 ### `view/assets/icons/`
 
