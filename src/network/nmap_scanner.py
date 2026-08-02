@@ -8,16 +8,65 @@ no responda.
 """
 
 import json
+import ipaddress
 import socket
 import sqlite3
+from urllib.parse import urlparse
 
 import nmap
 
-from config import DATABASE_PATH, OUI_JSON_PATH
+from config import DATABASE_PATH, OUI_JSON_PATH, ROUTER_HOST, ROUTER_URL
+from validators import normalize_mac
 
 
 RUTA_JSON = str(OUI_JSON_PATH)
 RUTA_DB = str(DATABASE_PATH)
+def _router_ips():
+    """Calcula IPs protegidas del router y su interfaz KAON secundaria."""
+
+    values = {
+        value
+        for value in (
+            str(ROUTER_HOST or "").strip(),
+            str(urlparse(ROUTER_URL).hostname or "").strip(),
+        )
+        if value
+    }
+    protected = set(values)
+
+    for value in values:
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError:
+            continue
+
+        if address.version != 4:
+            continue
+
+        prefix = ".".join(value.split(".")[:3])
+        protected.add(f"{prefix}.1")
+        protected.add(f"{prefix}.2")
+
+    return protected
+
+
+ROUTER_IPS = _router_ips()
+
+
+def is_router_device(ip="", hostname="", fabricante=""):
+    """Identifica el router configurado para excluirlo de usuarios administrables."""
+
+    ip = str(ip or "").strip()
+
+    if ip in ROUTER_IPS:
+        return True
+
+    name = str(hostname or "").strip().lower()
+    vendor = str(fabricante or "").strip().lower()
+    router_name = any(word in name for word in ("router", "gateway", "puerta-de-enlace"))
+    router_vendor = any(word in vendor for word in ("kaon", "arris", "technicolor", "sagemcom"))
+    router_like_ip = ip.endswith(".1") or ip.endswith(".2")
+    return router_vendor and (router_name or router_like_ip)
 
 
 class EscanerRedDB:
@@ -68,22 +117,29 @@ class EscanerRedDB:
         return self.oui_data.get(prefijo, "Desconocido")
 
     def guardar_dispositivo(self, ip, mac, hostname, fabricante):
-        """Inserta un dispositivo detectado sin duplicar MAC ya registradas."""
+        """Inserta o actualiza un usuario detectado, excluyendo el router."""
 
-        try:
-            self.cursor.execute('''
-                INSERT INTO dispositivos
-                (ip, mac, hostname, fabricante)
-                VALUES (?, ?, ?, ?)
-            ''', (
-                ip,
-                mac,
-                hostname,
-                fabricante,
-            ))
-            self.conn.commit()
-        except sqlite3.IntegrityError:
-            pass
+        mac = normalize_mac(mac)
+
+        if is_router_device(ip, hostname, fabricante):
+            return False
+
+        self.cursor.execute('''
+            INSERT INTO dispositivos
+            (ip, mac, hostname, fabricante)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(mac) DO UPDATE SET
+                ip = excluded.ip,
+                hostname = excluded.hostname,
+                fabricante = excluded.fabricante
+        ''', (
+            ip,
+            mac,
+            hostname,
+            fabricante,
+        ))
+        self.conn.commit()
+        return True
 
     def mostrar_dispositivos(self):
         """Imprime en consola los dispositivos almacenados en la base local."""
@@ -136,14 +192,20 @@ class EscanerRedDB:
             )
         except nmap.nmap.PortScannerError as e:
             print(f"Error Nmap: {e}")
-            return
+            return []
+
+        discovered = []
 
         for host in scanner.all_hosts():
             if 'mac' not in scanner[host]['addresses']:
                 continue
 
             ip = host
-            mac = scanner[host]['addresses']['mac']
+
+            if is_router_device(ip):
+                continue
+
+            mac = normalize_mac(scanner[host]['addresses']['mac'])
             fabricante = self.buscar_fabricante(mac)
             hostname = "Desconocido"
 
@@ -177,12 +239,25 @@ class EscanerRedDB:
                 except Exception:
                     pass
 
-            self.guardar_dispositivo(
+            if is_router_device(ip, hostname, fabricante):
+                continue
+
+            saved = self.guardar_dispositivo(
                 ip,
                 mac,
                 hostname,
                 fabricante,
             )
+
+            if not saved:
+                continue
+
+            discovered.append({
+                "ip": ip,
+                "mac": mac,
+                "hostname": hostname,
+                "fabricante": fabricante,
+            })
 
             print(
                 f"[+] {ip} | "
@@ -190,6 +265,8 @@ class EscanerRedDB:
                 f"{hostname} | "
                 f"{fabricante}"
             )
+
+        return discovered
 
     def close(self):
         """Cierra la conexion SQLite asociada al escaner."""

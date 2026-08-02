@@ -68,7 +68,9 @@ http://127.0.0.1:8000
 ```
 
 El panel usa rutas JSON bajo `/api/` para listar dispositivos, guardar nombres
-visibles por MAC, bloquear/desbloquear MAC, administrar invitados y ejecutar
+visibles por MAC, bloquear/desbloquear MAC, administrar redes principales,
+administrar invitados por banda, ocultar SSID, alternar la vista de claves WPA,
+aplicar limite de usuarios por interfaz cuando el firmware lo soporte y ejecutar
 escaneo Nmap.
 
 La carpeta `test/` queda sin cambios para que el equipo que trabaja SNMP pueda seguir subiendo sus archivos.

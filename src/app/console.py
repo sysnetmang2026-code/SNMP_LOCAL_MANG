@@ -14,7 +14,7 @@ import requests
 from config import DATABASE_PATH, ROUTER_PASS, ROUTER_URL, ROUTER_USER
 from network.adapters import get_subnet
 from network.nmap_scanner import EscanerRedDB
-from routers.kaon_client import KaonRouterClient
+from routers.kaon_client import KaonRouterClient, WIFI_CLIENT_LIMIT_MAX
 from validators import is_valid_mac, normalize_mac, normalize_url_keyword
 
 
@@ -504,6 +504,24 @@ def pedir_password_wpa():
         print("La contrasena WPA debe tener entre 8 y 64 caracteres.")
 
 
+def pedir_limite_usuarios():
+    """Solicita un limite de usuarios valido para una interfaz WiFi."""
+
+    while True:
+        valor = input(f"Limite de usuarios (0-{WIFI_CLIENT_LIMIT_MAX}): ").strip()
+
+        try:
+            limite = int(valor)
+        except ValueError:
+            print("El limite debe ser un numero entero.")
+            continue
+
+        if 0 <= limite <= WIFI_CLIENT_LIMIT_MAX:
+            return limite
+
+        print(f"El limite debe estar entre 0 y {WIFI_CLIENT_LIMIT_MAX}.")
+
+
 def cargar_config_red_invitados(router, band):
     """Espera y devuelve la configuracion actual de la red de invitados."""
 
@@ -638,6 +656,47 @@ def configurar_ocultar_ssid_red_primaria(band, etiqueta):
     print(f"\nSSID de la red primaria ahora esta {estado}.")
 
 
+def configurar_limite_red_primaria(band, etiqueta):
+    """Permite cambiar el limite de usuarios de una red primaria."""
+
+    router = crear_cliente_router()
+    config = cargar_config_red_primaria(router, band)
+
+    print(f"\nRed primaria {etiqueta}")
+    print(f"SSID actual: {config['ssid'] or '(sin nombre)'}")
+
+    if not config.get("limite_clientes_soportado"):
+        print("El formulario de este firmware no expone limite de usuarios.")
+        return
+
+    limite_actual = config["limite_clientes"]
+    print(f"Limite actual: {limite_actual if limite_actual is not None else '(sin leer)'}")
+    nuevo_limite = pedir_limite_usuarios()
+
+    if not preguntar_si_no("Desea aplicar este limite a la red primaria?"):
+        print("Operacion cancelada.")
+        return
+
+    router.configurar_red_primaria(limite_clientes=nuevo_limite, band=band)
+    config_actualizada = router.esperar_config_red_primaria(
+        limite_clientes=nuevo_limite,
+        band=band,
+        timeout=25,
+        interval=2,
+    )
+
+    if (
+        config_actualizada is None
+        or config_actualizada["limite_clientes"] != nuevo_limite
+    ):
+        print("\nCambio enviado al router.")
+        print("No se pudo confirmar todavia porque el router dejo de responder unos segundos.")
+        print("Espere 10 segundos y consulte de nuevo el estado.")
+        return
+
+    print(f"\nLimite de usuarios actualizado: {config_actualizada['limite_clientes']}.")
+
+
 def activar_red_invitados(band, etiqueta):
     """Activa la red de invitados y opcionalmente actualiza SSID y clave."""
 
@@ -723,6 +782,47 @@ def desactivar_red_invitados(band, etiqueta):
         return
 
     print("Red de invitados desactivada.")
+
+
+def configurar_limite_red_invitados(band, etiqueta):
+    """Permite cambiar el limite de usuarios de una red de invitados."""
+
+    router = crear_cliente_router()
+    config = cargar_config_red_invitados(router, band)
+
+    print(f"\nRed de invitados {etiqueta}")
+    print(f"SSID actual: {config['ssid'] or '(sin nombre)'}")
+
+    if not config.get("limite_clientes_soportado"):
+        print("El formulario de este firmware no expone limite de usuarios.")
+        return
+
+    limite_actual = config["limite_clientes"]
+    print(f"Limite actual: {limite_actual if limite_actual is not None else '(sin leer)'}")
+    nuevo_limite = pedir_limite_usuarios()
+
+    if not preguntar_si_no("Desea aplicar este limite a la red de invitados?"):
+        print("Operacion cancelada.")
+        return
+
+    router.configurar_red_invitados(limite_clientes=nuevo_limite, band=band)
+    config_actualizada = router.esperar_config_red_invitados(
+        limite_clientes=nuevo_limite,
+        band=band,
+        timeout=25,
+        interval=2,
+    )
+
+    if (
+        config_actualizada is None
+        or config_actualizada["limite_clientes"] != nuevo_limite
+    ):
+        print("\nCambio enviado al router.")
+        print("No se pudo confirmar todavia porque el router dejo de responder unos segundos.")
+        print("Espere 10 segundos y consulte de nuevo el estado.")
+        return
+
+    print(f"\nLimite de invitados actualizado: {config_actualizada['limite_clientes']}.")
 
 
 def alternar_red_invitados(band, etiqueta):
@@ -821,8 +921,10 @@ def configurar_banda_wifi(band, etiqueta):
         print("1. Cambiar SSID")
         print("2. Cambiar contrasena")
         print("3. Mostrar / Ocultar el SSID")
-        print("4. Activar / Desactivar la red de invitados")
-        print("5. Activar / Desactivar la red primaria")
+        print("4. Limite de usuarios de la red primaria")
+        print("5. Activar / Desactivar la red de invitados")
+        print("6. Limite de usuarios de la red de invitados")
+        print("7. Activar / Desactivar la red primaria")
         print("0. Volver")
 
         choice = input("Seleccione una opcion: ").strip()
@@ -834,8 +936,12 @@ def configurar_banda_wifi(band, etiqueta):
         elif choice == "3":
             configurar_ocultar_ssid_red_primaria(band, etiqueta)
         elif choice == "4":
-            alternar_red_invitados(band, etiqueta)
+            configurar_limite_red_primaria(band, etiqueta)
         elif choice == "5":
+            alternar_red_invitados(band, etiqueta)
+        elif choice == "6":
+            configurar_limite_red_invitados(band, etiqueta)
+        elif choice == "7":
             alternar_red_primaria(band, etiqueta)
         elif choice == "0":
             break

@@ -23,6 +23,7 @@ from validators import (
 
 
 WIRELESS_MAC_FIELDS = [f"WirelessMac{number:02d}" for number in range(1, 21)]
+WIFI_CLIENT_LIMIT_MAX = 20
 # Paginas que cambian la banda activa antes de leer formularios WiFi.
 BAND_URLS = {
     "2.4": "/wlan24G.asp",
@@ -38,7 +39,7 @@ GUEST_NETWORK_FIELDS = {
 }
 
 # Los firmwares KAON no siempre usan los mismos nombres. Estas tuplas agrupan
-# variantes equivalentes para SSID, clave, ocultamiento y estado de red primaria.
+# variantes equivalentes para SSID, clave, ocultamiento, limite y estado.
 PRIMARY_SSID_FIELDS = (
     "ServiceSetIdentifier",
     "PrimaryServiceSetIdentifier",
@@ -63,6 +64,48 @@ PRIMARY_HIDE_FIELDS = (
 PRIMARY_ENABLE_FIELDS = (
     "PrimaryNetworkEnable",
     "PrimaryNetworkEnabled",
+)
+PRIMARY_CLIENT_LIMIT_FIELDS = (
+    "MaxAssociatedDevices",
+    "MaxAssociatedClients",
+    "MaxAssoc",
+    "MaxAssocClients",
+    "MaxClients",
+    "MaxSta",
+    "MaxStaNum",
+    "MaxStations",
+    "StationLimit",
+    "StaLimit",
+    "AssociatedClientsLimit",
+    "WlMaxAssoc",
+    "wlMaxAssoc",
+)
+GUEST_HIDE_FIELDS = (
+    "ClosedNetworkGuest",
+    "GuestClosedNetwork",
+    "HideAccessPointGN",
+    "HideSSIDGN",
+    "HideSsidGN",
+    "GuestBroadcastSSID",
+    "SSIDBroadcastGN",
+)
+GUEST_CLIENT_LIMIT_FIELDS = (
+    "MaxAssociatedDevicesGN",
+    "MaxAssociatedClientsGN",
+    "MaxAssocGN",
+    "MaxAssocClientsGN",
+    "MaxClientsGN",
+    "MaxStaGN",
+    "MaxStaNumGN",
+    "MaxStationsGN",
+    "StationLimitGN",
+    "StaLimitGN",
+    "AssociatedClientsLimitGN",
+    "GuestMaxAssociatedDevices",
+    "GuestMaxAssociatedClients",
+    "GuestMaxClients",
+    "WlMaxAssocGN",
+    "wlMaxAssocGN",
 )
 
 PARENTAL_CONTROL_PROTOCOLS = {
@@ -166,11 +209,39 @@ class KaonRouterClient:
 
         return f"{self.router_url}/goform/RgFiltering"
 
-    def obtener_pagina_acceso(self, band=None):
-        """Obtiene el HTML de la pantalla de control de acceso MAC."""
+    def obtener_pagina_acceso(self, band=None, network_index=None):
+        """Obtiene la pantalla de acceso para una banda e interfaz WiFi."""
 
         if band is not None:
             self.seleccionar_banda_wifi(band)
+
+        html = self._get_autenticado(self.access_url)
+
+        if network_index is None:
+            return html
+
+        soup = BeautifulSoup(html, "html.parser")
+        network_select = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+        selected_index = self._valor_select(network_select) if network_select else "0"
+        target_index = str(network_index)
+
+        if selected_index == target_index:
+            return html
+
+        payload = self._obtener_payload_formulario(
+            html,
+            "wlanAccess",
+            "acceso WiFi",
+        )
+        payload["wlanAccessMbssIndexChanged"] = "1"
+        payload["wlanAccessCurrentNetworks"] = target_index
+        payload["commitwlanAccess"] = "0"
+        response = self._post_autenticado(self.access_form_url, payload)
+
+        if response.status_code not in (200, 302):
+            raise RuntimeError(
+                f"El router no permitio seleccionar la interfaz WiFi: HTTP {response.status_code}"
+            )
 
         return self._get_autenticado(self.access_url)
 
@@ -230,16 +301,70 @@ class KaonRouterClient:
 
         return response
 
-    def listar_clientes_banda(self, band="2.4"):
-        """Extrae clientes conectados de la banda activa en `wlanAccess.asp`."""
+    def _interfaces_acceso(self, html):
+        """Lista las interfaces principal e invitadas visibles en el formulario."""
+
+        soup = BeautifulSoup(html, "html.parser")
+        network_select = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+
+        if not network_select:
+            return [{"index": "0", "ssid": "", "guest": False}]
+
+        interfaces = []
+
+        for option in network_select.find_all("option"):
+            index = str(option.get("value", "0")).strip()
+            direct_text = option.find(string=True, recursive=False)
+            label = str(direct_text or "").strip()
+            ssid = label.rsplit(" (", 1)[0].strip()
+            interfaces.append({
+                "index": index,
+                "ssid": ssid,
+                "guest": index != "0",
+            })
+
+        return interfaces or [{"index": "0", "ssid": "", "guest": False}]
+
+    def listar_interfaces_banda(self, band="2.4"):
+        """Devuelve las interfaces WiFi disponibles en una banda."""
 
         band = self._normalizar_banda(band)
-        soup = BeautifulSoup(self.obtener_pagina_acceso(band=band), "html.parser")
+        return self._interfaces_acceso(self.obtener_pagina_acceso(band=band))
+
+    def listar_clientes_banda(
+        self,
+        band="2.4",
+        network_index=0,
+        network_name="",
+        guest=False,
+    ):
+        """Extrae clientes de una interfaz principal o invitada de la banda."""
+
+        band = self._normalizar_banda(band)
+        network_index = str(network_index)
+        html = self.obtener_pagina_acceso(
+            band=band,
+            network_index=network_index,
+        )
+        soup = BeautifulSoup(html, "html.parser")
         table = soup.find("table", {"class": "ListTypeA"})
 
         if not table:
             return []
 
+        if not network_name:
+            selected = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+            selected_option = selected.find("option", selected=True) if selected else None
+            direct_text = (
+                selected_option.find(string=True, recursive=False)
+                if selected_option
+                else ""
+            )
+            label = str(direct_text or "").strip()
+            network_name = label.rsplit(" (", 1)[0].strip()
+
+        guest = bool(guest or network_index != "0")
+        network_label = f"Invitados {band} GHz" if guest else f"WiFi {band} GHz"
         clients = []
 
         for row in table.find_all("tr")[1:]:
@@ -257,26 +382,43 @@ class KaonRouterClient:
                 "modo": columns[5].get_text(strip=True),
                 "velocidad": columns[6].get_text(strip=True),
                 "band": band,
-                "network": f"WiFi {band} GHz",
+                "network": network_label,
+                "network_index": network_index,
+                "ssid": network_name,
+                "guest": guest,
             })
 
         return clients
 
     def listar_clientes_todas_las_bandas(self):
-        """Lista clientes visibles en las bandas WiFi soportadas por el router."""
+        """Lista clientes de redes principales e invitadas en todas las bandas."""
 
         clients = []
-        successful_bands = 0
+        successful_networks = 0
         errors = []
 
         for band in BAND_URLS:
             try:
-                clients.extend(self.listar_clientes_banda(band))
-                successful_bands += 1
+                interfaces = self.listar_interfaces_banda(band)
             except Exception as error:
                 errors.append(f"{band} GHz: {error}")
+                continue
 
-        if successful_bands == 0 and errors:
+            for interface in interfaces:
+                try:
+                    clients.extend(self.listar_clientes_banda(
+                        band=band,
+                        network_index=interface["index"],
+                        network_name=interface["ssid"],
+                        guest=interface["guest"],
+                    ))
+                    successful_networks += 1
+                except Exception as error:
+                    errors.append(
+                        f"{band} GHz/{interface['ssid'] or interface['index']}: {error}"
+                    )
+
+        if successful_networks == 0 and errors:
             raise RuntimeError(
                 "No se pudieron leer clientes WiFi: " + "; ".join(errors)
             )
@@ -286,12 +428,18 @@ class KaonRouterClient:
     def listar_clientes_24ghz(self):
         """Extrae la tabla de clientes conectados de la banda 2.4 GHz."""
 
-        return self.listar_clientes_banda("2.4")
+        return self.listar_clientes_banda("2.4", network_index=0)
 
-    def obtener_macs_bloqueadas(self, band=None):
+    def obtener_macs_bloqueadas(self, band=None, network_index=0):
         """Lee las MAC cargadas en los campos `WirelessMac01..20`."""
 
-        soup = BeautifulSoup(self.obtener_pagina_acceso(band=band), "html.parser")
+        soup = BeautifulSoup(
+            self.obtener_pagina_acceso(
+                band=band,
+                network_index=network_index,
+            ),
+            "html.parser",
+        )
         blocked_macs = []
 
         for field_name in WIRELESS_MAC_FIELDS:
@@ -304,27 +452,39 @@ class KaonRouterClient:
         return blocked_macs
 
     def obtener_macs_bloqueadas_todas_las_bandas(self):
-        """Lee la union de MAC bloqueadas en todas las bandas WiFi."""
+        """Lee la union de bloqueos en redes principales e invitadas."""
 
         blocked_macs = set()
-        successful_bands = 0
+        successful_networks = 0
         errors = []
 
         for band in BAND_URLS:
             try:
-                blocked_macs.update(self.obtener_macs_bloqueadas(band=band))
-                successful_bands += 1
+                interfaces = self.listar_interfaces_banda(band)
             except Exception as error:
                 errors.append(f"{band} GHz: {error}")
+                continue
 
-        if successful_bands == 0 and errors:
+            for interface in interfaces:
+                try:
+                    blocked_macs.update(self.obtener_macs_bloqueadas(
+                        band=band,
+                        network_index=interface["index"],
+                    ))
+                    successful_networks += 1
+                except Exception as error:
+                    errors.append(
+                        f"{band} GHz/{interface['ssid'] or interface['index']}: {error}"
+                    )
+
+        if successful_networks == 0 and errors:
             raise RuntimeError(
                 "No se pudieron leer MAC bloqueadas: " + "; ".join(errors)
             )
 
         return sorted(blocked_macs)
 
-    def bloquear_mac(self, mac, network_index=0):
+    def bloquear_mac(self, mac, network_index=0, band=None):
         """Agrega una MAC al filtro de denegacion del router."""
 
         mac = normalize_mac(mac)
@@ -332,7 +492,10 @@ class KaonRouterClient:
         if not is_valid_mac(mac):
             raise ValueError("La direccion MAC no es valida.")
 
-        blocked_macs = self.obtener_macs_bloqueadas()
+        blocked_macs = self.obtener_macs_bloqueadas(
+            band=band,
+            network_index=network_index,
+        )
 
         if mac not in blocked_macs:
             blocked_macs.append(mac)
@@ -340,9 +503,13 @@ class KaonRouterClient:
         if len(blocked_macs) > len(WIRELESS_MAC_FIELDS):
             raise ValueError("El router solo permite hasta 20 MAC en esta pantalla.")
 
-        return self.aplicar_lista_bloqueo(blocked_macs, network_index=network_index)
+        return self.aplicar_lista_bloqueo(
+            blocked_macs,
+            network_index=network_index,
+            band=band,
+        )
 
-    def desbloquear_mac(self, mac, network_index=0):
+    def desbloquear_mac(self, mac, network_index=0, band=None):
         """Elimina una MAC del filtro de denegacion del router."""
 
         mac = normalize_mac(mac)
@@ -352,14 +519,27 @@ class KaonRouterClient:
 
         blocked_macs = [
             blocked_mac
-            for blocked_mac in self.obtener_macs_bloqueadas()
+            for blocked_mac in self.obtener_macs_bloqueadas(
+                band=band,
+                network_index=network_index,
+            )
             if blocked_mac != mac
         ]
 
-        return self.aplicar_lista_bloqueo(blocked_macs, network_index=network_index)
+        return self.aplicar_lista_bloqueo(
+            blocked_macs,
+            network_index=network_index,
+            band=band,
+        )
 
-    def aplicar_lista_bloqueo(self, blocked_macs, network_index=0):
+    def aplicar_lista_bloqueo(self, blocked_macs, network_index=0, band=None):
         """Aplica la lista completa de MAC bloqueadas en el formulario KAON."""
+
+        if band is not None:
+            self.obtener_pagina_acceso(
+                band=band,
+                network_index=network_index,
+            )
 
         blocked_macs = [normalize_mac(mac) for mac in blocked_macs if mac]
         payload = {
@@ -383,7 +563,11 @@ class KaonRouterClient:
         except requests.RequestException as error:
             self._reiniciar_sesion()
 
-            if self._lista_bloqueo_fue_aplicada(blocked_macs):
+            if self._lista_bloqueo_fue_aplicada(
+                blocked_macs,
+                band=band,
+                network_index=network_index,
+            ):
                 return True
 
             if isinstance(error, (Timeout, requests.ConnectionError)):
@@ -396,13 +580,75 @@ class KaonRouterClient:
 
         return True
 
-    def _lista_bloqueo_fue_aplicada(self, expected_macs):
+    def _cambiar_bloqueo_todas_las_redes(self, mac, blocked):
+        """Aplica un bloqueo o desbloqueo en interfaces principales e invitadas."""
+
+        successful_networks = 0
+        errors = []
+
+        for band in BAND_URLS:
+            try:
+                interfaces = self.listar_interfaces_banda(band)
+            except Exception as error:
+                errors.append(f"{band} GHz: {error}")
+                continue
+
+            for interface in interfaces:
+                try:
+                    if blocked:
+                        self.bloquear_mac(
+                            mac,
+                            band=band,
+                            network_index=interface["index"],
+                        )
+                    else:
+                        self.desbloquear_mac(
+                            mac,
+                            band=band,
+                            network_index=interface["index"],
+                        )
+                    successful_networks += 1
+                except Exception as error:
+                    errors.append(
+                        f"{band} GHz/{interface['ssid'] or interface['index']}: {error}"
+                    )
+
+        if successful_networks == 0 and errors:
+            action = "bloquear" if blocked else "desbloquear"
+            raise RuntimeError(
+                f"No se pudo {action} el usuario: " + "; ".join(errors)
+            )
+
+        return {
+            "success_count": successful_networks,
+            "errors": errors,
+        }
+
+    def bloquear_mac_todas_las_redes(self, mac):
+        """Bloquea una MAC en redes principales e invitadas."""
+
+        return self._cambiar_bloqueo_todas_las_redes(mac, blocked=True)
+
+    def desbloquear_mac_todas_las_redes(self, mac):
+        """Desbloquea una MAC en redes principales e invitadas."""
+
+        return self._cambiar_bloqueo_todas_las_redes(mac, blocked=False)
+
+    def _lista_bloqueo_fue_aplicada(
+        self,
+        expected_macs,
+        band=None,
+        network_index=0,
+    ):
         """Verifica si el router ya refleja la lista de bloqueo esperada."""
 
         time.sleep(1)
 
         try:
-            current_macs = self.obtener_macs_bloqueadas()
+            current_macs = self.obtener_macs_bloqueadas(
+                band=band,
+                network_index=network_index,
+            )
         except requests.RequestException:
             return False
 
@@ -956,22 +1202,31 @@ class KaonRouterClient:
         return texto[:48]
 
     def obtener_config_red_invitados(self, band="2.4"):
-        """Devuelve estado, SSID y clave WPA de la red de invitados."""
+        """Devuelve estado, SSID, clave WPA, visibilidad y limite de invitados."""
 
         payload = self._obtener_payload_red_invitados(band=band)
+        hide_field = self._buscar_campo(payload, GUEST_HIDE_FIELDS)
+        limit_field = self._buscar_campo(payload, GUEST_CLIENT_LIMIT_FIELDS)
 
         return {
             "habilitada": payload.get("GuestNetworkEnable") == "1",
             "ssid": payload.get("GuestServiceSetIdentifier", ""),
             "password": payload.get("WpaPreSharedKeyGN", ""),
+            "oculto": self._valor_ocultar_ssid(payload[hide_field], hide_field)
+            if hide_field
+            else None,
+            "limite_clientes": self._obtener_limite_clientes(payload, limit_field),
+            "limite_clientes_soportado": bool(limit_field),
+            "limite_clientes_max": WIFI_CLIENT_LIMIT_MAX,
         }
 
     def obtener_config_red_primaria(self, band="2.4"):
-        """Devuelve estado, SSID, clave WPA y visibilidad de red primaria."""
+        """Devuelve estado, SSID, clave WPA, visibilidad y limite primario."""
 
         payload = self._obtener_payload_red_primaria(band=band)
         enable_field = self._buscar_campo(payload, PRIMARY_ENABLE_FIELDS)
         hide_field = self._buscar_campo(payload, PRIMARY_HIDE_FIELDS)
+        limit_field = self._buscar_campo(payload, PRIMARY_CLIENT_LIMIT_FIELDS)
 
         return {
             "habilitada": payload.get(enable_field) == "1" if enable_field else None,
@@ -980,6 +1235,9 @@ class KaonRouterClient:
             "oculto": self._valor_ocultar_ssid(payload[hide_field], hide_field)
             if hide_field
             else None,
+            "limite_clientes": self._obtener_limite_clientes(payload, limit_field),
+            "limite_clientes_soportado": bool(limit_field),
+            "limite_clientes_max": WIFI_CLIENT_LIMIT_MAX,
         }
 
     def cambiar_ssid_red_primaria(self, ssid, band="2.4", network_index=0):
@@ -1009,6 +1267,28 @@ class KaonRouterClient:
             network_index=network_index,
         )
 
+    def configurar_red_primaria(
+        self,
+        ssid=None,
+        password=None,
+        ocultar_ssid=None,
+        limite_clientes=None,
+        habilitada=None,
+        band="2.4",
+        network_index=0,
+    ):
+        """Aplica SSID, clave WPA, visibilidad, limite y estado."""
+
+        return self._aplicar_config_red_primaria(
+            ssid=ssid,
+            password=password,
+            ocultar_ssid=ocultar_ssid,
+            limite_clientes=limite_clientes,
+            habilitada=habilitada,
+            band=band,
+            network_index=network_index,
+        )
+
     def activar_red_primaria(self, band="2.4", network_index=0):
         """Marca como habilitada la red primaria de la banda indicada."""
 
@@ -1032,6 +1312,7 @@ class KaonRouterClient:
         ssid=None,
         password=None,
         ocultar_ssid=None,
+        limite_clientes=None,
         habilitada=None,
         band="2.4",
         network_index=0,
@@ -1074,6 +1355,17 @@ class KaonRouterClient:
 
             payload[hide_field] = self._valor_para_ocultar_ssid(ocultar_ssid, hide_field)
 
+        if limite_clientes is not None:
+            limit_field = self._buscar_campo(payload, PRIMARY_CLIENT_LIMIT_FIELDS)
+
+            if not limit_field:
+                self._error_campo_no_encontrado(
+                    "limite de usuarios",
+                    PRIMARY_CLIENT_LIMIT_FIELDS,
+                )
+
+            payload[limit_field] = self._validar_limite_clientes(limite_clientes)
+
         self._preparar_payload_red_primaria(payload, network_index)
 
         try:
@@ -1085,6 +1377,7 @@ class KaonRouterClient:
                 ssid,
                 password,
                 ocultar_ssid,
+                limite_clientes,
                 habilitada,
                 band,
             ):
@@ -1100,8 +1393,17 @@ class KaonRouterClient:
 
         return True
 
-    def activar_red_invitados(self, ssid=None, password=None, band="2.4", network_index=0):
-        """Habilita la red de invitados y conserva o actualiza SSID/clave."""
+    def configurar_red_invitados(
+        self,
+        ssid=None,
+        password=None,
+        ocultar_ssid=None,
+        limite_clientes=None,
+        habilitada=None,
+        band="2.4",
+        network_index=0,
+    ):
+        """Aplica estado, SSID, clave WPA, visibilidad y limite de invitados."""
 
         payload = self._obtener_payload_red_invitados(band=band)
 
@@ -1113,17 +1415,36 @@ class KaonRouterClient:
             self._validar_password_wpa(password)
             payload["WpaPreSharedKeyGN"] = password
 
-        if not payload.get("WpaPreSharedKeyGN"):
+        if ocultar_ssid is not None:
+            hide_field = self._buscar_campo(payload, GUEST_HIDE_FIELDS)
+
+            if not hide_field:
+                self._error_campo_no_encontrado("ocultar SSID", GUEST_HIDE_FIELDS)
+
+            payload[hide_field] = self._valor_para_ocultar_ssid(ocultar_ssid, hide_field)
+
+        if limite_clientes is not None:
+            limit_field = self._buscar_campo(payload, GUEST_CLIENT_LIMIT_FIELDS)
+
+            if not limit_field:
+                self._error_campo_no_encontrado(
+                    "limite de usuarios invitados",
+                    GUEST_CLIENT_LIMIT_FIELDS,
+                )
+
+            payload[limit_field] = self._validar_limite_clientes(limite_clientes)
+
+        if habilitada is not None:
+            payload["GuestNetworkEnable"] = "1" if habilitada else "0"
+
+        if payload.get("GuestNetworkEnable") == "1" and not payload.get("WpaPreSharedKeyGN"):
             raise ValueError("La red de invitados no tiene contrasena WPA configurada.")
+
+        if payload.get("GuestNetworkEnable") == "1":
+            self._preparar_seguridad_red_invitados(payload)
 
         payload["CurrentNetworks"] = str(network_index)
         payload["MbssIndexChanged"] = "0"
-        payload["GuestNetworkEnable"] = "1"
-        payload["WpaAuthGN"] = "0"
-        payload["WpaPskAuthGN"] = "1"
-        payload["Wpa2AuthGN"] = "0"
-        payload["Wpa2PskAuthGN"] = "1"
-        payload["WpaEncryptionGN"] = payload.get("WpaEncryptionGN") or "2"
         payload["GenerateWepKeysGN"] = "0"
         payload["RestoreGuestNetworkDefaults"] = "0"
         payload["commitwlanGuestNetwork"] = "1"
@@ -1133,7 +1454,14 @@ class KaonRouterClient:
         except requests.RequestException as error:
             self._reiniciar_sesion()
 
-            if self._red_invitados_fue_activada(payload, band):
+            if self._config_red_invitados_fue_aplicada(
+                habilitada,
+                ssid,
+                password,
+                ocultar_ssid,
+                limite_clientes,
+                band,
+            ):
                 return True
 
             if isinstance(error, (Timeout, requests.ConnectionError)):
@@ -1146,40 +1474,43 @@ class KaonRouterClient:
 
         return True
 
+    def activar_red_invitados(
+        self,
+        ssid=None,
+        password=None,
+        ocultar_ssid=None,
+        limite_clientes=None,
+        band="2.4",
+        network_index=0,
+    ):
+        """Habilita la red de invitados y conserva o actualiza SSID/clave."""
+
+        return self.configurar_red_invitados(
+            ssid=ssid,
+            password=password,
+            ocultar_ssid=ocultar_ssid,
+            limite_clientes=limite_clientes,
+            habilitada=True,
+            band=band,
+            network_index=network_index,
+        )
+
     def desactivar_red_invitados(self, band="2.4", network_index=0):
         """Deshabilita la red de invitados de la banda seleccionada."""
 
-        payload = self._obtener_payload_red_invitados(band=band)
-        payload["CurrentNetworks"] = str(network_index)
-        payload["MbssIndexChanged"] = "0"
-        payload["GuestNetworkEnable"] = "0"
-        payload["GenerateWepKeysGN"] = "0"
-        payload["RestoreGuestNetworkDefaults"] = "0"
-        payload["commitwlanGuestNetwork"] = "1"
-
-        try:
-            response = self._post_autenticado(self.guest_network_form_url, payload)
-        except requests.RequestException as error:
-            self._reiniciar_sesion()
-
-            if self._red_invitados_fue_desactivada(band):
-                return True
-
-            if isinstance(error, Timeout) or "Read timed out" in str(error):
-                return True
-
-            raise
-
-        if response.status_code not in (200, 302):
-            raise RuntimeError(f"El router rechazo el cambio: HTTP {response.status_code}")
-
-        return True
+        return self.configurar_red_invitados(
+            habilitada=False,
+            band=band,
+            network_index=network_index,
+        )
 
     def esperar_config_red_invitados(
         self,
         habilitada=None,
         ssid=None,
         password=None,
+        oculto=None,
+        limite_clientes=None,
         band="2.4",
         timeout=25,
         interval=2,
@@ -1199,7 +1530,14 @@ class KaonRouterClient:
 
             ultima_config = config
 
-            if self._config_red_invitados_coincide(config, habilitada, ssid, password):
+            if self._config_red_invitados_coincide(
+                config,
+                habilitada,
+                ssid,
+                password,
+                oculto,
+                limite_clientes,
+            ):
                 return config
 
             time.sleep(interval)
@@ -1255,7 +1593,7 @@ class KaonRouterClient:
                 continue
 
             if input_type == "checkbox" and not field.has_attr("checked"):
-                if name in PRIMARY_HIDE_FIELDS:
+                if name in PRIMARY_HIDE_FIELDS or name in GUEST_HIDE_FIELDS:
                     payload[name] = "0"
 
                 continue
@@ -1315,6 +1653,7 @@ class KaonRouterClient:
         ssid=None,
         password=None,
         oculto=None,
+        limite_clientes=None,
         band="2.4",
         timeout=25,
         interval=2,
@@ -1340,6 +1679,7 @@ class KaonRouterClient:
                 ssid,
                 password,
                 oculto,
+                limite_clientes,
             ):
                 return config
 
@@ -1347,7 +1687,15 @@ class KaonRouterClient:
 
         return ultima_config
 
-    def _config_red_primaria_fue_aplicada(self, ssid, password, oculto, habilitada, band):
+    def _config_red_primaria_fue_aplicada(
+        self,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+        habilitada,
+        band,
+    ):
         """Verifica si el router refleja cambios enviados a red primaria."""
 
         time.sleep(1)
@@ -1363,9 +1711,18 @@ class KaonRouterClient:
             ssid,
             password,
             oculto,
+            limite_clientes,
         )
 
-    def _config_red_primaria_coincide(self, config, habilitada, ssid, password, oculto):
+    def _config_red_primaria_coincide(
+        self,
+        config,
+        habilitada,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+    ):
         """Compara una configuracion primaria contra valores esperados."""
 
         if habilitada is not None and config["habilitada"] != habilitada:
@@ -1380,9 +1737,50 @@ class KaonRouterClient:
         if oculto is not None and config["oculto"] != oculto:
             return False
 
+        if (
+            limite_clientes is not None
+            and config["limite_clientes"] != int(self._validar_limite_clientes(limite_clientes))
+        ):
+            return False
+
         return True
 
-    def _config_red_invitados_coincide(self, config, habilitada, ssid, password):
+    def _config_red_invitados_fue_aplicada(
+        self,
+        habilitada,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+        band,
+    ):
+        """Verifica si el router refleja cambios enviados a red de invitados."""
+
+        time.sleep(1)
+
+        try:
+            current = self.obtener_config_red_invitados(band=band)
+        except (requests.RequestException, RuntimeError):
+            return False
+
+        return self._config_red_invitados_coincide(
+            current,
+            habilitada,
+            ssid,
+            password,
+            oculto,
+            limite_clientes,
+        )
+
+    def _config_red_invitados_coincide(
+        self,
+        config,
+        habilitada,
+        ssid,
+        password,
+        oculto,
+        limite_clientes,
+    ):
         """Compara una configuracion de invitados contra valores esperados."""
 
         if habilitada is not None and config["habilitada"] != habilitada:
@@ -1392,6 +1790,15 @@ class KaonRouterClient:
             return False
 
         if password is not None and config["password"] != password:
+            return False
+
+        if oculto is not None and config["oculto"] != oculto:
+            return False
+
+        if (
+            limite_clientes is not None
+            and config["limite_clientes"] != int(self._validar_limite_clientes(limite_clientes))
+        ):
             return False
 
         return True
@@ -1409,6 +1816,21 @@ class KaonRouterClient:
 
         payload["commitwlanPrimaryNetwork"] = "1"
 
+    def _preparar_seguridad_red_invitados(self, payload):
+        """Fuerza WPA/WPA2-PSK con AES en redes de invitados habilitadas."""
+
+        payload["WpaAuthGN"] = "0"
+        payload["WpaPskAuthGN"] = "1"
+        payload["Wpa2AuthGN"] = "0"
+        payload["Wpa2PskAuthGN"] = "1"
+        payload["WpaEncryptionGN"] = "2"
+
+        if "AutoSecurityGN" in payload:
+            payload["AutoSecurityGN"] = "1"
+
+        if "WepEncryptionGN" in payload:
+            payload["WepEncryptionGN"] = "0"
+
     def _buscar_campo(self, payload, field_names):
         """Devuelve el primer nombre de campo presente en `payload`."""
 
@@ -1423,6 +1845,22 @@ class KaonRouterClient:
 
         field_name = self._buscar_campo(payload, field_names)
         return payload.get(field_name, "") if field_name else ""
+
+    def _obtener_limite_clientes(self, payload, field_name):
+        """Lee el limite de clientes de un campo opcional del firmware."""
+
+        if not field_name:
+            return None
+
+        value = str(payload.get(field_name, "")).strip()
+
+        if not value:
+            return None
+
+        try:
+            return int(value)
+        except ValueError:
+            return None
 
     def _valor_ocultar_ssid(self, value, field_name):
         """Interpreta el valor del campo de visibilidad como booleano `oculto`."""
@@ -1476,3 +1914,18 @@ class KaonRouterClient:
 
         if len(password) < 8 or len(password) > 64:
             raise ValueError("La contrasena WPA debe tener entre 8 y 64 caracteres.")
+
+    def _validar_limite_clientes(self, limite_clientes):
+        """Valida el limite de usuarios conectados por interfaz WiFi."""
+
+        try:
+            limite = int(limite_clientes)
+        except (TypeError, ValueError) as error:
+            raise ValueError("El limite de usuarios debe ser un numero.") from error
+
+        if limite < 0 or limite > WIFI_CLIENT_LIMIT_MAX:
+            raise ValueError(
+                f"El limite de usuarios debe estar entre 0 y {WIFI_CLIENT_LIMIT_MAX}."
+            )
+
+        return str(limite)

@@ -27,17 +27,25 @@
         <span class="nav-icon" aria-hidden="true">IP</span>
         Dispositivos
       </button>
+      <button class="nav-item" data-view="history" type="button">
+        <span class="nav-icon" aria-hidden="true">HI</span>
+        Historial
+      </button>
       <button class="nav-item" data-view="access" type="button">
-        <span class="nav-icon" aria-hidden="true">MA</span>
-        Control MAC
+        <span class="nav-icon" aria-hidden="true">BU</span>
+        Bloquear usuarios
+      </button>
+      <button class="nav-item" data-view="wifi" type="button">
+        <span class="nav-icon" aria-hidden="true">WF</span>
+        WiFi
       </button>
       <button class="nav-item" data-view="guest" type="button">
         <span class="nav-icon" aria-hidden="true">GI</span>
         Invitados
       </button>
       <button class="nav-item" data-view="scan" type="button">
-        <span class="nav-icon" aria-hidden="true">NM</span>
-        Escaneo Nmap
+        <span class="nav-icon" aria-hidden="true">ER</span>
+        Escanea tu red
       </button>
       <button class="nav-item" data-view="parental" type="button">
         <span class="nav-icon" aria-hidden="true">CP</span>
@@ -45,16 +53,16 @@
       </button>
     </nav>
 
-    <div class="router-card">
-      <span class="status-dot"></span>
+    <div class="router-card" id="routerStatusCard">
+      <span class="status-dot" id="routerStatusDot"></span>
       <div>
-        <strong>Router activo</strong>
-        <span>192.168.1.1</span>
+        <strong id="routerStatusText">Comprobando router</strong>
+        <span id="routerStatusAddress">Estado pendiente</span>
       </div>
     </div>
   </aside>
 
-  <!-- Contenedor de vistas: dashboard, dispositivos, acceso MAC, invitados y Nmap. -->
+  <!-- Contenedor de vistas funcionales del panel. -->
   <main class="shell">
     <!-- Barra superior con acciones globales de la sesion local. -->
     <header class="topbar">
@@ -63,41 +71,41 @@
         <h1>Panel de red</h1>
       </div>
       <div class="top-actions">
-        <button class="button secondary" type="button">Reiniciar</button>
+        <button class="button secondary" id="reloadPanel" type="button">Reiniciar</button>
         <button class="button primary" type="button" id="scanNow">Escanear red</button>
       </div>
     </header>
 
-    <!-- Vista inicial con indicadores estaticos de referencia operacional. -->
+    <!-- Vista inicial alimentada por lecturas reales del router y la base local. -->
     <section class="view is-visible" id="dashboard" aria-labelledby="dashboard-title">
       <div class="section-heading">
         <div>
           <p class="eyebrow">Resumen</p>
           <h2 id="dashboard-title">Estado general</h2>
         </div>
-        <span class="freshness">Ultima lectura: hace 2 min</span>
+        <span class="freshness" id="dashboardFreshness">Ultima lectura: pendiente</span>
       </div>
 
       <div class="metrics">
         <article class="metric">
           <span class="metric-label">Conectados</span>
-          <strong>12</strong>
-          <small>3 nuevos hoy</small>
+          <strong id="metricConnected">0</strong>
+          <small id="metricNewToday">0 nuevos hoy</small>
         </article>
         <article class="metric">
-          <span class="metric-label">MAC bloqueadas</span>
-          <strong>4</strong>
-          <small>Filtro activo</small>
+          <span class="metric-label">Usuarios bloqueados</span>
+          <strong id="metricBlocked">0</strong>
+          <small id="metricBlockedDetail">Lista del router</small>
         </article>
         <article class="metric">
           <span class="metric-label">Red invitados</span>
-          <strong>Activa</strong>
-          <small>SSID: Invitados_Casa</small>
+          <strong id="metricGuestState">Pendiente</strong>
+          <small id="metricGuestSsid">SSID sin leer</small>
         </article>
-        <article class="metric warning">
-          <span class="metric-label">Senal baja</span>
-          <strong>2</strong>
-          <small>Revisar ubicacion</small>
+        <article class="metric signal-metric">
+          <span class="metric-label">Senal WiFi</span>
+          <strong class="signal-summary" id="metricSignal">Sin medicion</strong>
+          <small id="metricSignalDetail">Esperando lectura del router</small>
         </article>
       </div>
 
@@ -105,28 +113,14 @@
         <section class="panel">
           <div class="panel-header">
             <h3>Actividad reciente</h3>
-            <button class="link-button" type="button">Ver todo</button>
+            <button class="link-button" type="button" data-view-link="history">Ver todo</button>
           </div>
-          <ol class="activity-list">
-            <li>
-              <span class="activity-dot success"></span>
-              <div>
-                <strong>Escaneo Nmap completado</strong>
-                <p>Se detectaron 12 dispositivos en 192.168.1.0/24.</p>
-              </div>
-            </li>
-            <li>
-              <span class="activity-dot danger"></span>
-              <div>
-                <strong>MAC bloqueada</strong>
-                <p>AA:9F:22:10:BC:44 fue agregada al control de acceso.</p>
-              </div>
-            </li>
+          <ol class="activity-list" id="activityList">
             <li>
               <span class="activity-dot"></span>
               <div>
-                <strong>Red de invitados actualizada</strong>
-                <p>La clave WPA fue modificada correctamente.</p>
+                <strong>Esperando lectura</strong>
+                <p>El panel actualizara la actividad al leer la red.</p>
               </div>
             </li>
           </ol>
@@ -138,9 +132,11 @@
           </div>
           <div class="quick-actions">
             <button class="quick-action" type="button" data-view-link="devices">Ver clientes</button>
-            <button class="quick-action" type="button" data-view-link="access">Bloquear MAC</button>
+            <button class="quick-action" type="button" data-view-link="history">Ver historial</button>
+            <button class="quick-action" type="button" data-view-link="access">Bloquear usuario</button>
+            <button class="quick-action" type="button" data-view-link="wifi">Configurar WiFi</button>
             <button class="quick-action" type="button" data-view-link="guest">Red invitados</button>
-            <button class="quick-action" type="button" data-view-link="scan">Nmap</button>
+            <button class="quick-action" type="button" data-view-link="scan">Escanear red</button>
             <button class="quick-action" type="button" data-view-link="parental">Bloquear sitios</button>
           </div>
         </section>
@@ -154,13 +150,17 @@
           <p class="eyebrow">Clientes conectados</p>
           <h2 id="devices-title">Dispositivos conectados</h2>
         </div>
-        <button class="button primary" id="refreshDevices" type="button">Actualizar</button>
+        <div class="section-actions">
+          <span class="freshness" id="deviceFreshness">Autoactualizacion activa</span>
+          <button class="button secondary" id="autoRefreshDevices" type="button">Auto: activo</button>
+          <button class="button primary" id="refreshDevices" type="button">Actualizar</button>
+        </div>
       </div>
 
       <section class="devices-intro">
         <div>
           <strong>Toque un dispositivo para administrarlo</strong>
-          <p>Se muestra el nombre detectado por el router o por Nmap. Puede ponerle un nombre mas facil y guardarlo en la base de datos.</p>
+          <p>Se muestra el nombre detectado por el router o por el escaneo local. Puede ponerle un nombre mas facil y guardarlo en la base de datos.</p>
         </div>
         <div class="device-filters">
           <input class="search" id="deviceSearch" type="search" placeholder="Buscar por nombre del dispositivo">
@@ -171,6 +171,12 @@
             <option value="tv">Televisores</option>
             <option value="camera">Camaras</option>
             <option value="printer">Impresoras</option>
+          </select>
+          <select class="select" id="deviceStatusFilter" aria-label="Filtrar por estado">
+            <option value="all">Todos</option>
+            <option value="connected">Activos</option>
+            <option value="offline">Desconectados</option>
+            <option value="blocked">Bloqueados</option>
           </select>
         </div>
       </section>
@@ -184,43 +190,156 @@
           <p>Consultando el router y la base de datos.</p>
         </article>
       </section>
+
     </section>
 
-    <!-- Vista de formulario estatico para control MAC manual. -->
+    <!-- Historial independiente de conexiones, desconexiones y cambios de red. -->
+    <section class="view" id="history" aria-labelledby="device-history-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Actividad guardada</p>
+          <h2 id="device-history-title">Historial de conexiones</h2>
+        </div>
+        <button class="danger-link" id="clearDeviceHistory" type="button">Limpiar historial</button>
+      </div>
+
+      <section class="panel device-history-panel">
+        <div class="panel-header">
+          <h3>Eventos recientes</h3>
+          <span class="freshness">Conexiones, desconexiones y cambios de red</span>
+        </div>
+        <ol class="device-history-list" id="deviceHistory">
+          <li class="history-empty">Sin eventos recientes.</li>
+        </ol>
+      </section>
+    </section>
+
+    <!-- Vista dinamica para bloquear o desbloquear usuarios detectados. -->
     <section class="view" id="access" aria-labelledby="access-title">
       <div class="section-heading">
         <div>
           <p class="eyebrow">Seguridad</p>
-          <h2 id="access-title">Control de acceso MAC</h2>
+          <h2 id="access-title">Bloquear usuarios en la red</h2>
         </div>
       </div>
 
+      <div class="notice" id="accessNotice" hidden></div>
+
       <div class="content-grid">
         <section class="panel">
-          <h3>Bloquear dispositivo</h3>
+          <h3>Seleccionar usuario</h3>
           <form class="form">
             <label>
-              Direccion MAC
-              <input type="text" placeholder="AA:BB:CC:DD:EE:FF">
+              Dispositivo detectado
+              <select id="accessDeviceSelect">
+                <option value="">Cargando usuarios...</option>
+              </select>
             </label>
-            <label>
-              Motivo
-              <input type="text" placeholder="Equipo desconocido">
-            </label>
-            <button class="button danger" type="button">Bloquear MAC</button>
+            <p class="form-help" id="accessDeviceHelp">Elija un equipo activo o conocido para impedirle el acceso a las redes WiFi.</p>
+            <button class="button danger" id="blockSelectedUser" type="button">Bloquear usuario</button>
           </form>
         </section>
 
         <section class="panel">
           <div class="panel-header">
-            <h3>MAC bloqueadas</h3>
-            <span class="badge danger">4 activas</span>
+            <h3>Usuarios bloqueados</h3>
+            <span class="badge danger" id="blockedUsersCount">0 bloqueados</span>
           </div>
-          <ul class="blocked-list">
-            <li><span>AA:9F:22:10:BC:44</span><button type="button">Desbloquear</button></li>
-            <li><span>70:4F:57:88:A1:10</span><button type="button">Desbloquear</button></li>
-            <li><span>9C:20:7B:14:65:E2</span><button type="button">Desbloquear</button></li>
+          <ul class="blocked-list" id="blockedUsersList">
+            <li class="blocked-empty">No hay usuarios bloqueados.</li>
           </ul>
+        </section>
+      </div>
+    </section>
+
+    <!-- Vista conectada a `/api/primary` para administrar redes principales. -->
+    <section class="view" id="wifi" aria-labelledby="wifi-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Red principal</p>
+          <h2 id="wifi-title">Configuracion WiFi</h2>
+        </div>
+      </div>
+
+      <div class="notice" id="primaryNotice" hidden></div>
+
+      <div class="settings-grid">
+        <section class="panel settings-panel" data-primary-band="2.4">
+          <div class="settings-card-header">
+            <div>
+              <p class="eyebrow">2.4 GHz</p>
+              <h3>Configuracion de red primaria 2.4</h3>
+            </div>
+            <span class="badge warning" data-primary-state>Sin lectura</span>
+          </div>
+          <form class="form two-cols">
+            <label>
+              SSID
+              <input data-primary-field="ssid" type="text" autocomplete="off">
+            </label>
+            <label>
+              Contrasena WPA
+              <span class="password-field">
+                <input data-primary-field="password" type="password" autocomplete="new-password">
+                <button class="icon-button password-toggle" data-password-toggle type="button" aria-label="Mostrar contrasena" title="Mostrar contrasena">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </span>
+            </label>
+            <label>
+              Limite de usuarios
+              <input data-primary-field="maxClients" type="number" min="0" max="20" step="1" inputmode="numeric">
+            </label>
+            <label class="checkbox-option">
+              <input data-primary-field="hidden" type="checkbox">
+              Ocultar SSID
+            </label>
+          </form>
+          <div class="form-actions">
+            <button class="button primary" data-primary-save="2.4" type="button">Guardar red 2.4</button>
+          </div>
+        </section>
+
+        <section class="panel settings-panel" data-primary-band="5">
+          <div class="settings-card-header">
+            <div>
+              <p class="eyebrow">5 GHz</p>
+              <h3>Configuracion de red primaria 5</h3>
+            </div>
+            <span class="badge warning" data-primary-state>Sin lectura</span>
+          </div>
+          <form class="form two-cols">
+            <label>
+              SSID
+              <input data-primary-field="ssid" type="text" autocomplete="off">
+            </label>
+            <label>
+              Contrasena WPA
+              <span class="password-field">
+                <input data-primary-field="password" type="password" autocomplete="new-password">
+                <button class="icon-button password-toggle" data-password-toggle type="button" aria-label="Mostrar contrasena" title="Mostrar contrasena">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </span>
+            </label>
+            <label>
+              Limite de usuarios
+              <input data-primary-field="maxClients" type="number" min="0" max="20" step="1" inputmode="numeric">
+            </label>
+            <label class="checkbox-option">
+              <input data-primary-field="hidden" type="checkbox">
+              Ocultar SSID
+            </label>
+          </form>
+          <div class="form-actions">
+            <button class="button primary" data-primary-save="5" type="button">Guardar red 5</button>
+          </div>
         </section>
       </div>
     </section>
@@ -266,78 +385,152 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">WiFi temporal</p>
-          <h2 id="guest-title">Red de invitados 2.4GHz</h2>
+          <h2 id="guest-title">Redes de invitados</h2>
         </div>
-        <label class="switch">
-          <input id="guestEnabled" type="checkbox" checked>
-          <span></span>
-          Activa
-        </label>
       </div>
 
       <div class="notice" id="guestNotice" hidden></div>
 
-      <section class="panel settings-panel">
-        <form class="form two-cols">
-          <label>
-            SSID
-            <input id="guestSsid" type="text" value="Invitados_Casa">
-          </label>
-          <label>
-            Contrasena WPA
-            <input id="guestPassword" type="password" value="123456789">
-          </label>
-          <label>
-            Duracion sugerida
-            <select>
-              <option>Siempre activa</option>
-              <option>2 horas</option>
-              <option>6 horas</option>
-              <option>24 horas</option>
-            </select>
-          </label>
-          <label>
-            Limite de dispositivos
-            <input type="number" value="8" min="1" max="20">
-          </label>
-        </form>
-        <div class="form-actions">
-          <button class="button secondary" type="button">Desactivar</button>
-          <button class="button primary" id="saveGuest" type="button">Guardar cambios</button>
-        </div>
-      </section>
+      <div class="settings-grid">
+        <section class="panel settings-panel" data-guest-band="2.4">
+          <div class="settings-card-header">
+            <div>
+              <p class="eyebrow">Invitados 2.4 GHz</p>
+              <h3>Configuracion de red de invitados 2.4</h3>
+            </div>
+            <label class="switch">
+              <input data-guest-field="enabled" type="checkbox">
+              <span></span>
+              Activa
+            </label>
+          </div>
+          <form class="form two-cols">
+            <label>
+              SSID
+              <input data-guest-field="ssid" type="text" autocomplete="off">
+            </label>
+            <label>
+              Contrasena WPA
+              <span class="password-field">
+                <input data-guest-field="password" type="password" autocomplete="new-password">
+                <button class="icon-button password-toggle" data-password-toggle type="button" aria-label="Mostrar contrasena" title="Mostrar contrasena">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </span>
+            </label>
+            <label>
+              Limite de usuarios
+              <input data-guest-field="maxClients" type="number" min="0" max="20" step="1" inputmode="numeric">
+            </label>
+            <label class="checkbox-option">
+              <input data-guest-field="hidden" type="checkbox">
+              Ocultar SSID
+            </label>
+          </form>
+          <div class="form-actions">
+            <button class="button primary" data-guest-save="2.4" type="button">Guardar invitados 2.4</button>
+          </div>
+        </section>
+
+        <section class="panel settings-panel" data-guest-band="5">
+          <div class="settings-card-header">
+            <div>
+              <p class="eyebrow">Invitados 5 GHz</p>
+              <h3>Configuracion red de invitados 5 GHz</h3>
+            </div>
+            <label class="switch">
+              <input data-guest-field="enabled" type="checkbox">
+              <span></span>
+              Activa
+            </label>
+          </div>
+          <form class="form two-cols">
+            <label>
+              SSID
+              <input data-guest-field="ssid" type="text" autocomplete="off">
+            </label>
+            <label>
+              Contrasena WPA
+              <span class="password-field">
+                <input data-guest-field="password" type="password" autocomplete="new-password">
+                <button class="icon-button password-toggle" data-password-toggle type="button" aria-label="Mostrar contrasena" title="Mostrar contrasena">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </button>
+              </span>
+            </label>
+            <label>
+              Limite de usuarios
+              <input data-guest-field="maxClients" type="number" min="0" max="20" step="1" inputmode="numeric">
+            </label>
+            <label class="checkbox-option">
+              <input data-guest-field="hidden" type="checkbox">
+              Ocultar SSID
+            </label>
+          </form>
+          <div class="form-actions">
+            <button class="button primary" data-guest-save="5" type="button">Guardar invitados 5</button>
+          </div>
+        </section>
+      </div>
     </section>
 
-    <!-- Vista conectada a `/api/scan` para iniciar descubrimiento Nmap. -->
+    <!-- Vista conectada a `/api/scan` para descubrir equipos de la red local. -->
     <section class="view" id="scan" aria-labelledby="scan-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Descubrimiento</p>
-          <h2 id="scan-title">Escaneo Nmap</h2>
+          <p class="eyebrow">Descubrimiento de usuarios</p>
+          <h2 id="scan-title">Escanea tu red</h2>
         </div>
-        <button class="button primary" id="startScan" type="button">Iniciar escaneo</button>
+        <button class="button primary" id="startScan" type="button">Escanear ahora</button>
       </div>
 
-      <section class="panel">
+      <section class="panel scan-panel">
         <div class="notice" id="scanNotice" hidden></div>
-        <div class="scan-banner">
-          <div>
-            <strong>Rango detectado</strong>
-            <span>192.168.1.0/24</span>
+        <div class="scan-experience">
+          <div class="radar-column">
+            <div class="network-radar" id="networkRadar" role="img" aria-label="Radar de dispositivos en la red">
+              <span class="radar-ring ring-one"></span>
+              <span class="radar-ring ring-two"></span>
+              <span class="radar-ring ring-three"></span>
+              <span class="radar-axis horizontal"></span>
+              <span class="radar-axis vertical"></span>
+              <span class="radar-sweep" aria-hidden="true"></span>
+              <span class="radar-core" aria-hidden="true"></span>
+              <span class="radar-points" id="radarPoints"></span>
+            </div>
+            <div class="radar-status" aria-live="polite">
+              <strong id="radarStatus">Listo para buscar dispositivos</strong>
+              <span id="radarCount">Los puntos apareceran al detectar usuarios.</span>
+            </div>
           </div>
-          <div>
-            <strong>Modo</strong>
-            <span>-sn -PR -n</span>
-          </div>
-          <div>
-            <strong>Base de datos</strong>
-            <span>red.db</span>
-          </div>
+
+          <aside class="scan-summary" aria-label="Resumen del escaneo">
+            <div>
+              <span>Red local</span>
+              <strong id="scanRange">Detectando...</strong>
+            </div>
+            <div>
+              <span>Estado</span>
+              <strong id="scanState">En espera</strong>
+            </div>
+            <div>
+              <span>Usuarios encontrados</span>
+              <strong id="scanDeviceCount">0</strong>
+            </div>
+            <p>El router queda fuera de los resultados para evitar bloquearlo por accidente.</p>
+          </aside>
         </div>
-        <div class="progress" aria-label="Progreso de escaneo">
-          <span style="width: 68%"></span>
+
+        <div class="scan-progress" id="scanProgress" hidden>
+          <span></span>
+          <p>Revisando los equipos de la red...</p>
         </div>
-        <p class="hint">Vista demo: aqui se mostraria el avance y luego la tabla historica de dispositivos detectados.</p>
       </section>
     </section>
   </main>
