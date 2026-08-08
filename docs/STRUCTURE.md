@@ -32,10 +32,22 @@ El bloqueo por MAC usa:
 
 - `GET /wlanAccess.asp` para leer clientes y MAC ya bloqueadas.
 - `POST /goform/wlanAccess` para aplicar cambios.
+- `wlanAccessCurrentNetworks` para cambiar entre red principal e invitados.
 - `MacRestrictMode=2` para modo `Denegar`.
 - `MacProbeResponse=1` para mantener el filtro encendido.
 - `WirelessMac01` a `WirelessMac20` para la lista de MAC.
 - `commitwlanAccess=1` para confirmar el formulario.
+
+Antes de escribir, el cliente confirma tanto la banda solicitada (2.4 o 5 GHz)
+como la interfaz elegida. Despues del `POST`, vuelve a leer la lista para
+verificar que las MAC visibles coinciden exactamente con lo enviado y reintenta
+si el KAON pierde el contexto. La API solo marca el bloqueo o desbloqueo como
+exitoso cuando confirma todas las interfaces WiFi activas.
+
+Este firmware cambia de banda con una pagina intermedia que abre
+`wlanRadio.asp` mediante JavaScript. El cliente reproduce esa navegacion porque
+las solicitudes HTTP de Python no ejecutan JavaScript; asi llega a
+`wlanAccess.asp` con la banda real seleccionada antes de editar el filtro.
 
 La muestra del formulario original esta en `docs/router_samples/kaon_wlanAccess.asp`.
 

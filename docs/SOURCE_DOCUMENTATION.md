@@ -69,8 +69,11 @@ La tabla `device_aliases` se crea desde `app.device_store.ensure_alias_table`:
 - `GET /api/scan/devices`: devuelve dispositivos historicos escaneados.
 - `GET /api/parental/sites`: devuelve perfiles de sitios y juegos bloqueables.
 - `POST /api/devices/alias`: guarda un alias visible por MAC.
-- `POST /api/devices/block`: agrega una MAC al filtro de bloqueo.
-- `POST /api/devices/unblock`: elimina una MAC del filtro de bloqueo.
+- `POST /api/devices/block`: agrega una MAC al filtro de bloqueo en todas las
+  interfaces WiFi activas que el KAON expone para 2.4/5 GHz, incluyendo
+  invitados. No responde como exitoso si una interfaz queda sin confirmar.
+- `POST /api/devices/unblock`: elimina una MAC de esas mismas interfaces y
+  tambien exige confirmacion completa.
 - `POST /api/guest`: activa o desactiva invitados y actualiza SSID, clave,
   visibilidad y limite de usuarios cuando el firmware lo expone.
 - `POST /api/primary`: actualiza SSID, clave, visibilidad y limite de usuarios
@@ -113,11 +116,12 @@ consola, servidor web y persistencia auxiliar.
 
 Implementa el menu interactivo de consola para administracion KAON. Sus
 funciones cubren listado de clientes, consulta de MAC bloqueadas, bloqueo y
-desbloqueo, configuracion de SSID y clave WPA, visibilidad de SSID, activacion
-o desactivacion de red primaria e invitados, limite de usuarios por interfaz
-cuando el firmware lo expone, creacion y eliminacion de reglas de control
-parental por dominio, refuerzo anti-evasion por puerto, y escaneo Nmap. El
-modulo usa confirmaciones explicitas antes de cambios sensibles.
+desbloqueo en todas las interfaces WiFi visibles, configuracion de SSID y clave
+WPA, visibilidad de SSID, activacion o desactivacion de red primaria e
+invitados, limite de usuarios por interfaz cuando el firmware lo expone,
+creacion y eliminacion de reglas de control parental por dominio, refuerzo
+anti-evasion por puerto, y escaneo Nmap. El modulo usa confirmaciones
+explicitas antes de cambios sensibles.
 
 ### `src/app/device_store.py`
 
@@ -130,7 +134,9 @@ escaneados uniendo `dispositivos` con `device_aliases`.
 Contiene el servidor HTTP local. Sirve archivos estaticos desde `view/` con
 proteccion contra traversal y despacha rutas JSON mediante `WebHandler`. Tambien
 normaliza dispositivos para que el frontend consuma una estructura unica aunque
-los datos provengan del router o de SQLite.
+los datos provengan del router o de SQLite. Usa un servidor HTTP con manejo
+silencioso de cortes normales del navegador local para evitar trazas
+`ConnectionAbortedError` cuando una pestaña cancela una solicitud.
 
 ### `src/network/__init__.py`
 
@@ -166,10 +172,18 @@ basica, lee paginas HTML, extrae formularios, aplica cambios por endpoints
 `goform` y confirma estado despues de timeouts. Soporta clientes conectados,
 MAC bloqueadas, red de invitados, red primaria en bandas 2.4 GHz y 5 GHz, y
 reglas de control parental desde `/RgFiltering.asp`, incluyendo alta y baja por
-indice de tabla, reglas por dominio y reglas por puerto. Los formularios reales
-adjuntos usan `ClosedNetwork` para ocultar SSID primario y `ClosedNetworkGuest`
-para invitados; el limite de usuarios se aplica solo si la pagina del firmware
-incluye un campo compatible.
+indice de tabla, reglas por dominio y reglas por puerto. Para bloqueo MAC usa
+`wlanAccessCurrentNetworks` para seleccionar cada interfaz visible, confirma
+que el router quedo en la banda e indice solicitados antes de escribir y despues
+relee `WirelessMac01..20` para comprobar que la lista quedo aplicada. Reintenta
+el cambio cuando el KAON pierde el contexto y no marca exito parcial. Los
+formularios reales adjuntos usan `ClosedNetwork` para ocultar SSID primario y
+`ClosedNetworkGuest` para invitados; el limite de usuarios se aplica solo si la
+pagina del firmware incluye un campo compatible.
+
+El selector de 2.4/5 GHz del firmware entrega una pagina que navega por
+JavaScript a `wlanRadio.asp`. `KaonRouterClient` realiza esa segunda lectura de
+forma explicita para que las peticiones HTTP operen sobre la banda correcta.
 
 ### `src/routers/openwrt_ssh_access_control.py`
 
@@ -200,7 +214,9 @@ llamadas `fetch` a `/api/`, renderizado seguro de tarjetas, filtros de busqueda,
 red primaria e invitados por banda, escaneo Nmap y modal de acciones por
 dispositivo. Tambien alterna la visibilidad local de las claves WPA desde los
 botones de ojo y muestra una vista previa tactil antes de ejecutar bloqueos de
-control parental en moviles.
+control parental en moviles. En los campos de limite de usuarios muestra el
+rango permitido cuando el router lo reporta y deshabilita el control cuando el
+firmware no expone ningun campo compatible.
 
 ### `view/assets/icons/`
 

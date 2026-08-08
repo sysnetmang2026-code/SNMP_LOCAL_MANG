@@ -1507,6 +1507,10 @@ function populateClientLimit(input, config = {}) {
   input.min = "0";
   input.max = String(max);
   input.disabled = !supported;
+  input.placeholder = supported ? `0-${max}` : "No disponible";
+  input.title = supported
+    ? `Limite permitido por esta interfaz: 0-${max}`
+    : "El firmware KAON no expone un campo de limite para esta interfaz.";
   input.value = config.limite_clientes === null || config.limite_clientes === undefined
     ? ""
     : String(config.limite_clientes);

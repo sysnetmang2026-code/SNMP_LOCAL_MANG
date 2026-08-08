@@ -24,11 +24,18 @@ from validators import (
 
 WIRELESS_MAC_FIELDS = [f"WirelessMac{number:02d}" for number in range(1, 21)]
 WIFI_CLIENT_LIMIT_MAX = 20
+ACCESS_INTERFACE_SETTLE_SECONDS = 0.5
+ACCESS_CONFIRM_TIMEOUT = 8
+ACCESS_CONFIRM_INTERVAL = 1
+ACCESS_WRITE_ATTEMPTS = 3
+ACCESS_RETRY_INTERVAL = 0.75
+ACCESS_INTERFACE_ATTEMPTS = 3
 # Paginas que cambian la banda activa antes de leer formularios WiFi.
 BAND_URLS = {
     "2.4": "/wlan24G.asp",
     "5": "/wlan5G.asp",
 }
+BAND_CONTEXT_URL = "/wlanRadio.asp"
 
 
 # Nombres de campos observados en el formulario de red de invitados KAON.
@@ -71,14 +78,26 @@ PRIMARY_CLIENT_LIMIT_FIELDS = (
     "MaxAssoc",
     "MaxAssocClients",
     "MaxClients",
+    "MaxNumClients",
+    "MaxNumSta",
+    "MaxNumStation",
     "MaxSta",
     "MaxStaNum",
+    "MaxStationNum",
     "MaxStations",
+    "MaxUsers",
     "StationLimit",
     "StaLimit",
     "AssociatedClientsLimit",
+    "ClientLimit",
+    "UserLimit",
+    "WirelessMaxClients",
+    "WlanMaxClients",
     "WlMaxAssoc",
     "wlMaxAssoc",
+    "wl_maxassoc",
+    "wl0_maxassoc",
+    "wl1_maxassoc",
 )
 GUEST_HIDE_FIELDS = (
     "ClosedNetworkGuest",
@@ -95,17 +114,32 @@ GUEST_CLIENT_LIMIT_FIELDS = (
     "MaxAssocGN",
     "MaxAssocClientsGN",
     "MaxClientsGN",
+    "MaxNumClientsGN",
+    "MaxNumStaGN",
+    "MaxNumStationGN",
     "MaxStaGN",
     "MaxStaNumGN",
+    "MaxStationNumGN",
     "MaxStationsGN",
+    "MaxUsersGN",
     "StationLimitGN",
     "StaLimitGN",
     "AssociatedClientsLimitGN",
+    "ClientLimitGN",
+    "UserLimitGN",
+    "WirelessMaxClientsGN",
+    "WlanMaxClientsGN",
     "GuestMaxAssociatedDevices",
     "GuestMaxAssociatedClients",
     "GuestMaxClients",
+    "GuestMaxNumClients",
+    "GuestMaxNumSta",
+    "GuestMaxUsers",
     "WlMaxAssocGN",
     "wlMaxAssocGN",
+    "wl_maxassoc_gn",
+    "wl0_maxassoc_gn",
+    "wl1_maxassoc_gn",
 )
 
 PARENTAL_CONTROL_PROTOCOLS = {
@@ -147,6 +181,7 @@ class KaonRouterClient:
         self.timeout = timeout
         self.post_timeout = post_timeout
         self.session = self._crear_sesion()
+        self._access_band_signatures = {}
 
     def _crear_sesion(self):
         """Crea una sesion `requests` con autenticacion basica configurada."""
@@ -213,37 +248,119 @@ class KaonRouterClient:
         """Obtiene la pantalla de acceso para una banda e interfaz WiFi."""
 
         if band is not None:
-            self.seleccionar_banda_wifi(band)
-
-        html = self._get_autenticado(self.access_url)
+            band = self._normalizar_banda(band)
+            html = self._obtener_pagina_acceso_en_banda(band)
+        else:
+            html = self._get_autenticado(self.access_url)
 
         if network_index is None:
             return html
 
-        soup = BeautifulSoup(html, "html.parser")
-        network_select = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
-        selected_index = self._valor_select(network_select) if network_select else "0"
         target_index = str(network_index)
 
-        if selected_index == target_index:
+        if self._indice_interfaz_acceso(html) == target_index:
             return html
 
-        payload = self._obtener_payload_formulario(
-            html,
-            "wlanAccess",
-            "acceso WiFi",
-        )
-        payload["wlanAccessMbssIndexChanged"] = "1"
-        payload["wlanAccessCurrentNetworks"] = target_index
-        payload["commitwlanAccess"] = "0"
-        response = self._post_autenticado(self.access_form_url, payload)
+        last_error = None
 
-        if response.status_code not in (200, 302):
-            raise RuntimeError(
-                f"El router no permitio seleccionar la interfaz WiFi: HTTP {response.status_code}"
-            )
+        for attempt in range(ACCESS_INTERFACE_ATTEMPTS):
+            try:
+                payload = self._obtener_payload_formulario(
+                    html,
+                    "wlanAccess",
+                    "acceso WiFi",
+                )
+                payload["wlanAccessMbssIndexChanged"] = "1"
+                payload["wlanAccessCurrentNetworks"] = target_index
+                payload["commitwlanAccess"] = "0"
+                response = self._post_autenticado(self.access_form_url, payload)
 
-        return self._get_autenticado(self.access_url)
+                if response.status_code not in (200, 302):
+                    raise RuntimeError(
+                        "El router no permitio seleccionar la interfaz WiFi: "
+                        f"HTTP {response.status_code}"
+                    )
+
+                time.sleep(ACCESS_INTERFACE_SETTLE_SECONDS)
+                html = self._get_autenticado(self.access_url)
+
+                if band is not None and not self._confirmar_firma_banda_acceso(band, html):
+                    raise RuntimeError(
+                        "El router cambio de banda antes de confirmar la interfaz WiFi. "
+                        f"Solicitada: {band} GHz."
+                    )
+
+                selected_index = self._indice_interfaz_acceso(html)
+
+                if selected_index == target_index:
+                    return html
+
+                available = ", ".join(
+                    interface["index"]
+                    for interface in self._interfaces_acceso(html)
+                )
+                last_error = RuntimeError(
+                    "El router no confirmo la interfaz WiFi solicitada. "
+                    f"Actual: {selected_index or '(sin leer)'}. "
+                    f"Solicitada: {target_index}. "
+                    f"Disponibles: {available or '(ninguna)'}."
+                )
+            except (requests.RequestException, RuntimeError) as error:
+                last_error = error
+
+            self._reiniciar_sesion()
+
+            if attempt < ACCESS_INTERFACE_ATTEMPTS - 1:
+                time.sleep(ACCESS_RETRY_INTERVAL)
+                html = (
+                    self._obtener_pagina_acceso_en_banda(band)
+                    if band is not None
+                    else self._get_autenticado(self.access_url)
+                )
+
+        raise RuntimeError(
+            "No se pudo confirmar la interfaz WiFi solicitada despues de "
+            f"{ACCESS_INTERFACE_ATTEMPTS} intentos. Ultimo error: {last_error}"
+        ) from last_error
+
+    def _obtener_pagina_acceso_en_banda(self, band):
+        """Abre `wlanAccess.asp` y confirma que conserva la banda pedida."""
+
+        band = self._normalizar_banda(band)
+        last_error = None
+
+        for attempt in range(ACCESS_WRITE_ATTEMPTS):
+            try:
+                self.seleccionar_banda_wifi(band)
+                time.sleep(ACCESS_INTERFACE_SETTLE_SECONDS)
+                html = self._get_autenticado(self.access_url)
+
+                if self._confirmar_firma_banda_acceso(band, html):
+                    return html
+
+                last_error = RuntimeError(
+                    "El router cambio de banda antes de abrir el control de acceso. "
+                    f"Solicitada: {band} GHz."
+                )
+            except (requests.RequestException, RuntimeError) as error:
+                last_error = error
+
+            self._reiniciar_sesion()
+
+            if attempt < ACCESS_WRITE_ATTEMPTS - 1:
+                time.sleep(ACCESS_RETRY_INTERVAL)
+
+        raise RuntimeError(
+            f"No se pudo confirmar la banda {band} GHz para el control de acceso. "
+            f"Ultimo error: {last_error}"
+        ) from last_error
+
+    def _indice_interfaz_acceso(self, html):
+        """Lee el indice de interfaz seleccionado en `wlanAccess.asp`."""
+
+        soup = BeautifulSoup(html, "html.parser")
+        network_select = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+        return self._valor_select(network_select) if network_select else "0"
 
     def obtener_pagina_red_invitados(self, band="2.4"):
         """Selecciona la banda y obtiene el HTML de red de invitados."""
@@ -266,7 +383,79 @@ class KaonRouterClient:
         """Solicita al router cambiar la banda activa del panel web."""
 
         band = self._normalizar_banda(band)
-        return self._get_autenticado(f"{self.router_url}{BAND_URLS[band]}")
+        html = self._get_autenticado(f"{self.router_url}{BAND_URLS[band]}")
+
+        # El KAON responde al selector con JavaScript que abre wlanRadio.asp.
+        # Requests no ejecuta JavaScript, asi que reproducimos esa navegacion.
+        if "wlanRadio.asp" in html:
+            html = self._get_autenticado(f"{self.router_url}{BAND_CONTEXT_URL}")
+
+        active_band = self._banda_wifi_activa(html)
+
+        if active_band not in (None, band):
+            raise RuntimeError(
+                "El router no confirmo el cambio de banda WiFi. "
+                f"Solicitada: {band} GHz. Activa: {active_band or '(sin confirmar)'} GHz."
+            )
+
+        return html
+
+    def _confirmar_firma_banda_acceso(self, band, html):
+        """Evita escribir en otra banda cuando el KAON pierde su contexto."""
+
+        signature = self._firma_pagina_acceso(html)
+
+        for known_band, known_signature in self._access_band_signatures.items():
+            if known_band != band and known_signature == signature:
+                return False
+
+        self._access_band_signatures[band] = signature
+        return True
+
+    def _firma_pagina_acceso(self, html):
+        """Genera una firma estable de las interfaces visibles en el formulario."""
+
+        soup = BeautifulSoup(html, "html.parser")
+        network_select = soup.find("select", {"name": "wlanAccessCurrentNetworks"})
+
+        if not network_select:
+            raise RuntimeError(
+                "El router no devolvio las interfaces WiFi en el control de acceso."
+            )
+
+        signature = []
+
+        for option in network_select.find_all("option"):
+            signature.append((
+                str(option.get("value", "")).strip(),
+                " ".join(option.get_text(" ", strip=True).split()),
+            ))
+
+        if not signature:
+            raise RuntimeError(
+                "El router no devolvio opciones de interfaz WiFi para el filtro MAC."
+            )
+
+        return tuple(signature)
+
+    def _banda_wifi_activa(self, html):
+        """Obtiene la banda marcada como activa por el menu del router."""
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        for link in soup.find_all("a"):
+            classes = {value.lower() for value in link.get("class", [])}
+
+            if "active" not in classes:
+                continue
+
+            href = (link.get("href") or "").split("?", 1)[0]
+
+            for band, band_url in BAND_URLS.items():
+                if href == band_url:
+                    return band
+
+        return None
 
     def _get_autenticado(self, url):
         """Realiza un GET autenticado y renueva sesion si recibe HTTP 401."""
@@ -447,9 +636,9 @@ class KaonRouterClient:
             value = input_field.get("value", "").strip() if input_field else ""
 
             if value:
-                blocked_macs.append(normalize_mac(value))
+                blocked_macs.append(value)
 
-        return blocked_macs
+        return self._normalizar_lista_macs_bloqueo(blocked_macs)
 
     def obtener_macs_bloqueadas_todas_las_bandas(self):
         """Lee la union de bloqueos en redes principales e invitadas."""
@@ -535,55 +724,86 @@ class KaonRouterClient:
     def aplicar_lista_bloqueo(self, blocked_macs, network_index=0, band=None):
         """Aplica la lista completa de MAC bloqueadas en el formulario KAON."""
 
-        if band is not None:
-            self.obtener_pagina_acceso(
-                band=band,
-                network_index=network_index,
-            )
+        blocked_macs = self._normalizar_lista_macs_bloqueo(blocked_macs)
+        last_error = None
 
-        blocked_macs = [normalize_mac(mac) for mac in blocked_macs if mac]
-        payload = {
-            "wlanAccessMbssIndexChanged": "0",
-            "wlanAccessCurrentNetworks": str(network_index),
-            "MacRestrictMode": "2",
-            "MacProbeResponse": "1",
-            "commitwlanAccess": "1",
-        }
+        for attempt in range(ACCESS_WRITE_ATTEMPTS):
+            try:
+                html = self.obtener_pagina_acceso(
+                    band=band,
+                    network_index=network_index,
+                )
+                payload = self._obtener_payload_formulario(
+                    html,
+                    "wlanAccess",
+                    "acceso WiFi",
+                )
+                payload["wlanAccessMbssIndexChanged"] = "0"
+                payload["wlanAccessCurrentNetworks"] = str(network_index)
+                payload["MacRestrictMode"] = "2"
+                payload["MacProbeResponse"] = "1"
+                payload["commitwlanAccess"] = "1"
 
-        for index, field_name in enumerate(WIRELESS_MAC_FIELDS):
-            payload[field_name] = blocked_macs[index] if index < len(blocked_macs) else ""
+                for index, field_name in enumerate(WIRELESS_MAC_FIELDS):
+                    payload[field_name] = (
+                        blocked_macs[index] if index < len(blocked_macs) else ""
+                    )
 
-        try:
-            response = self.session.post(
-                self.access_form_url,
-                data=payload,
-                timeout=self.post_timeout,
-                allow_redirects=False,
-            )
-        except requests.RequestException as error:
+                response = self._post_autenticado(self.access_form_url, payload)
+
+                if response.status_code not in (200, 302):
+                    raise RuntimeError(
+                        f"El router rechazo el cambio: HTTP {response.status_code}"
+                    )
+            except requests.RequestException:
+                self._reiniciar_sesion()
+
+                if self._lista_bloqueo_fue_aplicada(
+                    blocked_macs,
+                    band=band,
+                    network_index=network_index,
+                ):
+                    return True
+
+                last_error = RuntimeError(
+                    "El router corto la conexion antes de confirmar el cambio de bloqueo."
+                )
+            except RuntimeError as error:
+                last_error = error
+            else:
+                if self._lista_bloqueo_fue_aplicada(
+                    blocked_macs,
+                    band=band,
+                    network_index=network_index,
+                ):
+                    return True
+
+                last_error = RuntimeError(
+                    "El router recibio el cambio, pero no confirmo la lista de MAC "
+                    "en la interfaz WiFi seleccionada."
+                )
+
             self._reiniciar_sesion()
 
-            if self._lista_bloqueo_fue_aplicada(
-                blocked_macs,
-                band=band,
-                network_index=network_index,
-            ):
-                return True
+            if attempt < ACCESS_WRITE_ATTEMPTS - 1:
+                time.sleep(ACCESS_RETRY_INTERVAL)
 
-            if isinstance(error, (Timeout, requests.ConnectionError)):
-                return True
-
-            raise
-
-        if response.status_code not in (200, 302):
-            raise RuntimeError(f"El router rechazo el cambio: HTTP {response.status_code}")
-
-        return True
+        raise RuntimeError(
+            "No se pudo confirmar el bloqueo en la interfaz WiFi despues de "
+            f"{ACCESS_WRITE_ATTEMPTS} intentos. Ultimo error: {last_error}"
+        ) from last_error
 
     def _cambiar_bloqueo_todas_las_redes(self, mac, blocked):
         """Aplica un bloqueo o desbloqueo en interfaces principales e invitadas."""
 
+        mac = normalize_mac(mac)
+
+        if not is_valid_mac(mac):
+            raise ValueError("La direccion MAC no es valida.")
+
         successful_networks = 0
+        applied_interfaces = []
+        expected_interfaces = []
         errors = []
 
         for band in BAND_URLS:
@@ -594,6 +814,13 @@ class KaonRouterClient:
                 continue
 
             for interface in interfaces:
+                expected_interfaces.append({
+                    "band": band,
+                    "network_index": interface["index"],
+                    "ssid": interface["ssid"],
+                    "guest": interface["guest"],
+                })
+
                 try:
                     if blocked:
                         self.bloquear_mac(
@@ -608,6 +835,12 @@ class KaonRouterClient:
                             network_index=interface["index"],
                         )
                     successful_networks += 1
+                    applied_interfaces.append({
+                        "band": band,
+                        "network_index": interface["index"],
+                        "ssid": interface["ssid"],
+                        "guest": interface["guest"],
+                    })
                 except Exception as error:
                     errors.append(
                         f"{band} GHz/{interface['ssid'] or interface['index']}: {error}"
@@ -621,6 +854,11 @@ class KaonRouterClient:
 
         return {
             "success_count": successful_networks,
+            "expected_count": len(expected_interfaces),
+            "all_interfaces_confirmed": not errors and (
+                successful_networks == len(expected_interfaces)
+            ),
+            "interfaces": applied_interfaces,
             "errors": errors,
         }
 
@@ -639,20 +877,53 @@ class KaonRouterClient:
         expected_macs,
         band=None,
         network_index=0,
+        timeout=ACCESS_CONFIRM_TIMEOUT,
+        interval=ACCESS_CONFIRM_INTERVAL,
     ):
         """Verifica si el router ya refleja la lista de bloqueo esperada."""
 
-        time.sleep(1)
+        expected = set(self._normalizar_lista_macs_bloqueo(expected_macs))
+        deadline = time.monotonic() + timeout
 
-        try:
-            current_macs = self.obtener_macs_bloqueadas(
-                band=band,
-                network_index=network_index,
-            )
-        except requests.RequestException:
-            return False
+        while time.monotonic() <= deadline:
+            try:
+                current_macs = self.obtener_macs_bloqueadas(
+                    band=band,
+                    network_index=network_index,
+                )
+            except (requests.RequestException, RuntimeError):
+                self._reiniciar_sesion()
+                time.sleep(interval)
+                continue
 
-        return set(current_macs) == set(expected_macs)
+            if set(current_macs) == expected:
+                return True
+
+            time.sleep(interval)
+
+        return False
+
+    def _normalizar_lista_macs_bloqueo(self, macs):
+        """Normaliza, valida y deduplica una lista de MAC para el filtro KAON."""
+
+        normalized_macs = []
+
+        for value in macs:
+            mac = normalize_mac(value)
+
+            if not mac:
+                continue
+
+            if not is_valid_mac(mac):
+                raise ValueError(f"La MAC guardada en el router no es valida: {value}")
+
+            if mac not in normalized_macs:
+                normalized_macs.append(mac)
+
+        if len(normalized_macs) > len(WIRELESS_MAC_FIELDS):
+            raise ValueError("El router solo permite hasta 20 MAC en esta pantalla.")
+
+        return normalized_macs
 
     def obtener_reglas_control_parental(self):
         """Extrae las reglas visibles en la tabla `ParentalControl`."""
@@ -1206,7 +1477,11 @@ class KaonRouterClient:
 
         payload = self._obtener_payload_red_invitados(band=band)
         hide_field = self._buscar_campo(payload, GUEST_HIDE_FIELDS)
-        limit_field = self._buscar_campo(payload, GUEST_CLIENT_LIMIT_FIELDS)
+        limit_field = self._buscar_campo_limite_clientes(
+            payload,
+            GUEST_CLIENT_LIMIT_FIELDS,
+            band,
+        )
 
         return {
             "habilitada": payload.get("GuestNetworkEnable") == "1",
@@ -1226,7 +1501,11 @@ class KaonRouterClient:
         payload = self._obtener_payload_red_primaria(band=band)
         enable_field = self._buscar_campo(payload, PRIMARY_ENABLE_FIELDS)
         hide_field = self._buscar_campo(payload, PRIMARY_HIDE_FIELDS)
-        limit_field = self._buscar_campo(payload, PRIMARY_CLIENT_LIMIT_FIELDS)
+        limit_field = self._buscar_campo_limite_clientes(
+            payload,
+            PRIMARY_CLIENT_LIMIT_FIELDS,
+            band,
+        )
 
         return {
             "habilitada": payload.get(enable_field) == "1" if enable_field else None,
@@ -1356,7 +1635,11 @@ class KaonRouterClient:
             payload[hide_field] = self._valor_para_ocultar_ssid(ocultar_ssid, hide_field)
 
         if limite_clientes is not None:
-            limit_field = self._buscar_campo(payload, PRIMARY_CLIENT_LIMIT_FIELDS)
+            limit_field = self._buscar_campo_limite_clientes(
+                payload,
+                PRIMARY_CLIENT_LIMIT_FIELDS,
+                band,
+            )
 
             if not limit_field:
                 self._error_campo_no_encontrado(
@@ -1424,7 +1707,11 @@ class KaonRouterClient:
             payload[hide_field] = self._valor_para_ocultar_ssid(ocultar_ssid, hide_field)
 
         if limite_clientes is not None:
-            limit_field = self._buscar_campo(payload, GUEST_CLIENT_LIMIT_FIELDS)
+            limit_field = self._buscar_campo_limite_clientes(
+                payload,
+                GUEST_CLIENT_LIMIT_FIELDS,
+                band,
+            )
 
             if not limit_field:
                 self._error_campo_no_encontrado(
@@ -1576,7 +1863,13 @@ class KaonRouterClient:
         for field in form.find_all(["input", "select", "textarea"]):
             name = field.get("name")
 
-            if not name or field.has_attr("disabled"):
+            if not name:
+                continue
+
+            if field.has_attr("disabled"):
+                if name in (*PRIMARY_CLIENT_LIMIT_FIELDS, *GUEST_CLIENT_LIMIT_FIELDS):
+                    payload[name] = field.get("value", "")
+
                 continue
 
             if field.name == "select":
@@ -1839,6 +2132,22 @@ class KaonRouterClient:
                 return field_name
 
         return None
+
+    def _buscar_campo_limite_clientes(self, payload, field_names, band):
+        """Busca el campo de limite dando prioridad al indice de banda."""
+
+        band = self._normalizar_banda(band)
+        preferred = (
+            ("wl1_maxassoc", "wl1_maxassoc_gn")
+            if band == "5"
+            else ("wl0_maxassoc", "wl0_maxassoc_gn")
+        )
+
+        for field_name in preferred:
+            if field_name in field_names and field_name in payload:
+                return field_name
+
+        return self._buscar_campo(payload, field_names)
 
     def _obtener_valor_campo(self, payload, field_names):
         """Obtiene el valor del primer campo disponible entre varias opciones."""

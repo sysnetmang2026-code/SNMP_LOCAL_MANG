@@ -9,8 +9,6 @@ cambios accidentales.
 
 from getpass import getpass
 
-import requests
-
 from config import DATABASE_PATH, ROUTER_PASS, ROUTER_URL, ROUTER_USER
 from network.adapters import get_subnet
 from network.nmap_scanner import EscanerRedDB
@@ -197,7 +195,7 @@ def listar_macs_bloqueadas():
     """Imprime la lista de direcciones MAC bloqueadas en el router."""
 
     router = crear_cliente_router()
-    macs = router.obtener_macs_bloqueadas()
+    macs = router.obtener_macs_bloqueadas_todas_las_bandas()
 
     if not macs:
         print("No hay MAC bloqueadas.")
@@ -427,37 +425,48 @@ def desbloquear_control_parental():
 
 
 def bloquear_mac():
-    """Solicita una MAC por consola y la agrega al filtro de bloqueo."""
+    """Solicita una MAC por consola y la bloquea en todas las interfaces."""
 
     mac = input("MAC a bloquear: ")
     router = crear_cliente_router()
     mac_normalizada = normalize_mac(mac)
 
-    try:
-        router.bloquear_mac(mac_normalizada)
-    except requests.RequestException:
-        verificador = crear_cliente_router()
-        if mac_normalizada not in verificador.obtener_macs_bloqueadas():
-            raise
+    resultado = router.bloquear_mac_todas_las_redes(mac_normalizada)
+    interface_label = (
+        "interfaz WiFi" if resultado["success_count"] == 1 else "interfaces WiFi"
+    )
 
-    print("Bloqueo listo.")
+    print(f"Bloqueo confirmado en {resultado['success_count']} {interface_label}.")
+
+    if resultado["errors"]:
+        print("Interfaces con advertencia:")
+        for error in resultado["errors"]:
+            print(f"- {error}")
+
+    print(
+        "Nota para celulares: si el telefono usa MAC aleatoria/privada, "
+        "bloquee la MAC que aparece conectada en esta red."
+    )
 
 
 def desbloquear_mac():
-    """Solicita una MAC por consola y la elimina del filtro de bloqueo."""
+    """Solicita una MAC por consola y la desbloquea en todas las interfaces."""
 
     mac = input("MAC a desbloquear: ")
     router = crear_cliente_router()
     mac_normalizada = normalize_mac(mac)
 
-    try:
-        router.desbloquear_mac(mac_normalizada)
-    except requests.RequestException:
-        verificador = crear_cliente_router()
-        if mac_normalizada in verificador.obtener_macs_bloqueadas():
-            raise
+    resultado = router.desbloquear_mac_todas_las_redes(mac_normalizada)
+    interface_label = (
+        "interfaz WiFi" if resultado["success_count"] == 1 else "interfaces WiFi"
+    )
 
-    print("Desbloqueo listo.")
+    print(f"Desbloqueo confirmado en {resultado['success_count']} {interface_label}.")
+
+    if resultado["errors"]:
+        print("Interfaces con advertencia:")
+        for error in resultado["errors"]:
+            print(f"- {error}")
 
 
 def preguntar_si_no(pregunta, default=False):

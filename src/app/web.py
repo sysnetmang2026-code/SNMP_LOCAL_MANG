@@ -17,6 +17,7 @@ import platform
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
+import sys
 import threading
 from urllib.parse import parse_qs, urlparse
 
@@ -552,6 +553,20 @@ def site_profiles_response(rules=None, mac=""):
     ]
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """Servidor HTTP que oculta cortes normales del navegador local."""
+
+    def handle_error(self, request, client_address):
+        """Evita tracebacks cuando el browser aborta una conexion ya abierta."""
+
+        error_type, _, _ = sys.exc_info()
+
+        if error_type in (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            return
+
+        super().handle_error(request, client_address)
+
+
 class WebHandler(BaseHTTPRequestHandler):
     """Manejador HTTP que sirve el panel y sus rutas JSON."""
 
@@ -853,8 +868,29 @@ class WebHandler(BaseHTTPRequestHandler):
         with ROUTER_OPERATION_LOCK:
             router = crear_cliente_router()
             result = router.bloquear_mac_todas_las_redes(mac)
-        warning = "; ".join(result["errors"])
-        message = "Usuario bloqueado en las redes WiFi."
+        warning = "; ".join(dict.fromkeys(
+            public_error_message(error)
+            for error in result["errors"]
+        ))
+
+        if not result["all_interfaces_confirmed"]:
+            self.respond_json({
+                "ok": False,
+                "error": (
+                    "El bloqueo no se confirmo en todas las interfaces WiFi activas. "
+                    "No se actualizo el estado del dispositivo. "
+                    f"Detalle: {warning or 'El router no devolvio una confirmacion completa.'}"
+                ),
+                "mac": mac,
+                "interfaces": result.get("interfaces", []),
+                "expected_count": result.get("expected_count", 0),
+            }, status=502)
+            return
+
+        interface_label = (
+            "interfaz WiFi" if result["success_count"] == 1 else "interfaces WiFi"
+        )
+        message = f"Usuario bloqueado en {result['success_count']} {interface_label}."
 
         if warning:
             message += " Algunas interfaces no pudieron confirmarse."
@@ -864,6 +900,7 @@ class WebHandler(BaseHTTPRequestHandler):
             "message": message,
             "warning": warning,
             "mac": mac,
+            "interfaces": result.get("interfaces", []),
         })
 
     def handle_unblock_device(self):
@@ -879,8 +916,29 @@ class WebHandler(BaseHTTPRequestHandler):
         with ROUTER_OPERATION_LOCK:
             router = crear_cliente_router()
             result = router.desbloquear_mac_todas_las_redes(mac)
-        warning = "; ".join(result["errors"])
-        message = "Usuario desbloqueado de las redes WiFi."
+        warning = "; ".join(dict.fromkeys(
+            public_error_message(error)
+            for error in result["errors"]
+        ))
+
+        if not result["all_interfaces_confirmed"]:
+            self.respond_json({
+                "ok": False,
+                "error": (
+                    "El desbloqueo no se confirmo en todas las interfaces WiFi activas. "
+                    "No se actualizo el estado del dispositivo. "
+                    f"Detalle: {warning or 'El router no devolvio una confirmacion completa.'}"
+                ),
+                "mac": mac,
+                "interfaces": result.get("interfaces", []),
+                "expected_count": result.get("expected_count", 0),
+            }, status=502)
+            return
+
+        interface_label = (
+            "interfaz WiFi" if result["success_count"] == 1 else "interfaces WiFi"
+        )
+        message = f"Usuario desbloqueado de {result['success_count']} {interface_label}."
 
         if warning:
             message += " Algunas interfaces no pudieron confirmarse."
@@ -890,6 +948,7 @@ class WebHandler(BaseHTTPRequestHandler):
             "message": message,
             "warning": warning,
             "mac": mac,
+            "interfaces": result.get("interfaces", []),
         })
 
     def handle_forget_device(self):
@@ -1118,7 +1177,7 @@ def main():
     parser.add_argument("--port", default=8000, type=int)
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer((args.host, args.port), WebHandler)
+    server = QuietThreadingHTTPServer((args.host, args.port), WebHandler)
     print(f"Panel web disponible en http://{args.host}:{args.port}")
     print("Presione Ctrl+C para detenerlo.")
 
