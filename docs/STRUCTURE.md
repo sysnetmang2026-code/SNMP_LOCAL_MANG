@@ -76,13 +76,13 @@ python src/main_web.py
 Luego abrir:
 
 ```text
-http://127.0.0.1:8000
+http://127.0.0.1:8001
 ```
 
 El panel usa rutas JSON bajo `/api/` para listar dispositivos, guardar nombres
 visibles por MAC, bloquear/desbloquear MAC, administrar redes principales,
 administrar invitados por banda, ocultar SSID, alternar la vista de claves WPA,
-aplicar limite de usuarios por interfaz cuando el firmware lo soporte y ejecutar
-escaneo Nmap.
+guardar limites de usuarios por interfaz y aplicarlos desde el panel cuando se
+actualiza o escanea la red.
 
 La carpeta `test/` queda sin cambios para que el equipo que trabaja SNMP pueda seguir subiendo sus archivos.

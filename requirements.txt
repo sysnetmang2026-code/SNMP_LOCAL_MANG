@@ -1,0 +1,7 @@
+beautifulsoup4>=4.12
+ifaddr>=0.2
+paramiko>=3.4
+pysnmp>=7.1
+python-dotenv>=1.0
+python-nmap>=0.7.1
+requests>=2.32

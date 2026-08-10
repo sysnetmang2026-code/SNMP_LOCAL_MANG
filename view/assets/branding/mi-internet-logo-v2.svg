@@ -1,0 +1,79 @@
+<svg width="1600" height="1100" viewBox="0 0 1600 1100" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">MI INTERNET - Toma el control</title>
+  <desc id="desc">Logo vectorial con globo de red, nodos conectados y el texto MI INTERNET TOMA EL CONTROL.</desc>
+  <defs>
+    <linearGradient id="wordmarkGradient" x1="250" y1="0" x2="1350" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5B21D9"/>
+      <stop offset="0.55" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#9B38FF"/>
+    </linearGradient>
+    <linearGradient id="nodeGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10E7FF"/>
+      <stop offset="1" stop-color="#FF20C8"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#020617" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <g stroke="#071A44" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.95">
+      <ellipse cx="800" cy="575" rx="610" ry="385"/>
+      <path d="M210 510C355 410 560 350 800 350C1040 350 1245 410 1390 510"/>
+      <path d="M210 640C355 740 560 800 800 800C1040 800 1245 740 1390 640"/>
+      <path d="M800 190V960"/>
+      <path d="M800 190C690 330 630 455 630 575C630 695 690 820 800 960"/>
+      <path d="M800 190C910 330 970 455 970 575C970 695 910 820 800 960"/>
+      <path d="M800 190C545 250 395 395 360 575C395 755 545 900 800 960"/>
+      <path d="M800 190C1055 250 1205 395 1240 575C1205 755 1055 900 800 960"/>
+    </g>
+
+    <g stroke="#071A44" stroke-width="12">
+      <circle cx="800" cy="190" r="30" fill="#10BFFF"/>
+      <circle cx="378" cy="302" r="30" fill="#FF20C8"/>
+      <circle cx="1222" cy="302" r="30" fill="#FF20C8"/>
+      <circle cx="190" cy="510" r="30" fill="#10BFFF"/>
+      <circle cx="1410" cy="510" r="30" fill="#10BFFF"/>
+      <circle cx="378" cy="848" r="30" fill="#FF20C8"/>
+      <circle cx="1222" cy="848" r="30" fill="#FF20C8"/>
+      <circle cx="800" cy="960" r="30" fill="#10BFFF"/>
+    </g>
+  </g>
+
+  <g aria-hidden="true">
+    <text x="800" y="480" text-anchor="middle"
+          font-family="Montserrat, Poppins, Arial Black, Arial, sans-serif"
+          font-size="210" font-weight="900" letter-spacing="0"
+          fill="#00E5FF">MI</text>
+    <text x="790" y="495" text-anchor="middle"
+          font-family="Montserrat, Poppins, Arial Black, Arial, sans-serif"
+          font-size="210" font-weight="900" letter-spacing="0"
+          fill="#FF20C8">MI</text>
+    <text x="800" y="488" text-anchor="middle"
+          font-family="Montserrat, Poppins, Arial Black, Arial, sans-serif"
+          font-size="210" font-weight="900" letter-spacing="0"
+          fill="url(#wordmarkGradient)">MI</text>
+
+    <text x="800" y="700" text-anchor="middle"
+          font-family="Montserrat, Poppins, Arial Black, Arial, sans-serif"
+          font-size="205" font-weight="900" letter-spacing="0"
+          fill="#00E5FF">INTERNET</text>
+    <text x="790" y="716" text-anchor="middle"
+          font-family="Montserrat, Poppins, Arial Black, Arial, sans-serif"
+          font-size="205" font-weight="900" letter-spacing="0"
+          fill="#FF20C8">INTERNET</text>
+    <text x="800" y="705" text-anchor="middle"
+          font-family="Montserrat, Poppins, Arial Black, Arial, sans-serif"
+          font-size="205" font-weight="900" letter-spacing="0"
+          fill="url(#wordmarkGradient)">INTERNET</text>
+  </g>
+
+  <g>
+    <line x1="455" y1="820" x2="580" y2="820" stroke="#FF20C8" stroke-width="10" stroke-linecap="round"/>
+    <line x1="1020" y1="820" x2="1145" y2="820" stroke="#00CFFF" stroke-width="10" stroke-linecap="round"/>
+    <text x="800" y="845" text-anchor="middle"
+          font-family="Montserrat, Poppins, Arial, sans-serif"
+          font-size="70" font-style="italic" font-weight="900" letter-spacing="0"
+          fill="#071A44">TOMA EL CONTROL</text>
+  </g>
+</svg>

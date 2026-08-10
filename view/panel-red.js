@@ -17,6 +17,13 @@ const deviceTypeFilter = document.getElementById("deviceTypeFilter");
 const deviceStatusFilter = document.getElementById("deviceStatusFilter");
 const refreshDevices = document.getElementById("refreshDevices");
 const reloadPanel = document.getElementById("reloadPanel");
+const logoutPanel = document.getElementById("logoutPanel");
+const homeReloadPanel = document.getElementById("homeReloadPanel");
+const homeLogoutPanel = document.getElementById("homeLogoutPanel");
+const homeNetworkName = document.getElementById("homeNetworkName");
+const homeNetworkBand = document.getElementById("homeNetworkBand");
+const homeDeviceStatus = document.getElementById("homeDeviceStatus");
+const homeRouterStatus = document.getElementById("homeRouterStatus");
 const autoRefreshDevices = document.getElementById("autoRefreshDevices");
 const deviceFreshness = document.getElementById("deviceFreshness");
 const dashboardFreshness = document.getElementById("dashboardFreshness");
@@ -30,7 +37,13 @@ const metricSignal = document.getElementById("metricSignal");
 const metricSignalDetail = document.getElementById("metricSignalDetail");
 const activityList = document.getElementById("activityList");
 const deviceHistory = document.getElementById("deviceHistory");
+const historyView = document.getElementById("history");
 const clearDeviceHistory = document.getElementById("clearDeviceHistory");
+const historySearch = document.getElementById("historySearch");
+const historyCategoryFilter = document.getElementById("historyCategoryFilter");
+const historyStatusFilter = document.getElementById("historyStatusFilter");
+const historyPeriodFilter = document.getElementById("historyPeriodFilter");
+const historyResultCount = document.getElementById("historyResultCount");
 const routerStatusCard = document.getElementById("routerStatusCard");
 const routerStatusDot = document.getElementById("routerStatusDot");
 const routerStatusText = document.getElementById("routerStatusText");
@@ -67,6 +80,17 @@ const renameField = document.getElementById("renameField");
 const aliasInput = document.getElementById("aliasInput");
 const modalConfirm = document.getElementById("modalConfirm");
 const closeModalButtons = document.querySelectorAll(".modal-close, .modal-cancel");
+const loginScreen = document.getElementById("loginScreen");
+const loginArt = document.querySelector(".login-art");
+const loginTouchTarget = document.getElementById("loginTouchTarget");
+const loginMascots = document.querySelectorAll(".mascot");
+const routerLoginForm = document.getElementById("routerLoginForm");
+const routerUsername = document.getElementById("routerUsername");
+const routerPassword = document.getElementById("routerPassword");
+const routerLoginSubmit = document.getElementById("routerLoginSubmit");
+const routerLoginMessage = document.getElementById("routerLoginMessage");
+const routerLoginPasswordToggle = document.getElementById("routerLoginPasswordToggle");
+const loginSuggestions = document.querySelectorAll("[data-login-username][data-login-password]");
 
 // Estado de cliente mantenido en memoria durante la sesion del navegador.
 let devices = [];
@@ -79,6 +103,7 @@ let primaryLoaded = false;
 let guestLoaded = false;
 let parentalLoaded = false;
 let devicesLoading = false;
+let historyLoading = false;
 let autoRefreshEnabled = true;
 let deviceRefreshTimer = null;
 let lastDevicePayload = null;
@@ -86,6 +111,10 @@ let hasBlockedSnapshot = false;
 let radarRevealTimer = null;
 let accessStateOverrides = new Map();
 let siteActionPreviewTimer = null;
+let loginErrorTimer = null;
+let loginPointerFrame = null;
+let loginPointerResetTimer = null;
+let pendingLoginPointer = null;
 
 const DEVICE_REFRESH_INTERVAL_MS = 10000;
 const ACCESS_OVERRIDE_TTL_MS = 30000;
@@ -95,11 +124,415 @@ const WIFI_BANDS = [
 ];
 
 /**
+ * Actualiza el gesto visual de las figuras del login segun la interaccion.
+ *
+ * @param {string} intent Estado visual: `idle`, `user`, `password` o `loading`.
+ */
+function setLoginIntent(intent = "idle") {
+  if (!loginScreen) {
+    return;
+  }
+
+  loginScreen.dataset.intent = intent;
+}
+
+/**
+ * Limita un valor para mantener el seguimiento dentro de la escena.
+ */
+function clampLoginPointer(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * Mueve ojos y figuras hacia un punto de la pantalla.
+ */
+function applyLoginPointer(clientX, clientY, touch = false) {
+  if (!loginScreen || !loginArt) {
+    return;
+  }
+
+  const rect = loginArt.getBoundingClientRect();
+
+  if (!rect.width || !rect.height) {
+    return;
+  }
+
+  const centerX = rect.left + (rect.width / 2);
+  const centerY = rect.top + (rect.height / 2);
+  const normalizedX = clampLoginPointer((clientX - centerX) / (rect.width * 0.52), -1, 1);
+  const normalizedY = clampLoginPointer((clientY - centerY) / (rect.height * 0.52), -1, 1);
+  const eyeDistance = touch ? 6 : 5;
+
+  loginScreen.style.setProperty("--eye-x", `${(normalizedX * eyeDistance).toFixed(2)}px`);
+  loginScreen.style.setProperty("--eye-y", `${(normalizedY * eyeDistance * 0.7).toFixed(2)}px`);
+  loginScreen.style.setProperty("--mouth-x", `${(normalizedX * 2).toFixed(2)}px`);
+  loginScreen.style.setProperty("--mouth-y", `${(normalizedY * 1.2).toFixed(2)}px`);
+
+  const movement = touch ? 13 : 7;
+  const factors = [0.48, 0.78, 1, 0.64];
+
+  loginMascots.forEach((mascot, index) => {
+    const factor = factors[index] || 0.7;
+    mascot.style.setProperty("--follow-x", `${(normalizedX * movement * factor).toFixed(2)}px`);
+    mascot.style.setProperty("--follow-y", `${(normalizedY * movement * factor * 0.55).toFixed(2)}px`);
+    mascot.style.setProperty("--follow-rotate", `${(normalizedX * factor * 2.2).toFixed(2)}deg`);
+  });
+}
+
+/**
+ * Agrupa movimientos rapidos del mouse en un solo frame visual.
+ */
+function queueLoginPointer(clientX, clientY) {
+  pendingLoginPointer = { clientX, clientY };
+
+  if (loginPointerFrame !== null) {
+    return;
+  }
+
+  loginPointerFrame = window.requestAnimationFrame(() => {
+    if (pendingLoginPointer) {
+      applyLoginPointer(pendingLoginPointer.clientX, pendingLoginPointer.clientY);
+    }
+
+    pendingLoginPointer = null;
+    loginPointerFrame = null;
+  });
+}
+
+/**
+ * Devuelve los personajes a su posicion de reposo.
+ */
+function resetLoginPointerTracking() {
+  if (loginPointerFrame !== null) {
+    window.cancelAnimationFrame(loginPointerFrame);
+    loginPointerFrame = null;
+  }
+
+  window.clearTimeout(loginPointerResetTimer);
+  loginPointerResetTimer = null;
+  pendingLoginPointer = null;
+  loginScreen?.classList.remove("is-pointer-pulse");
+  ["--eye-x", "--eye-y", "--mouth-x", "--mouth-y"]
+    .forEach((property) => loginScreen?.style.removeProperty(property));
+  loginMascots.forEach((mascot) => {
+    ["--follow-x", "--follow-y", "--follow-rotate"]
+      .forEach((property) => mascot.style.removeProperty(property));
+  });
+}
+
+/**
+ * Hace que las figuras persigan brevemente el punto tocado en movil.
+ */
+function pulseLoginTouch(clientX, clientY) {
+  if (!loginScreen || !loginArt || !loginTouchTarget) {
+    return;
+  }
+
+  applyLoginPointer(clientX, clientY, true);
+  const rect = loginArt.getBoundingClientRect();
+  const targetX = clampLoginPointer(clientX - rect.left, 18, rect.width - 18);
+  const targetY = clampLoginPointer(clientY - rect.top, 18, rect.height - 18);
+  loginArt.style.setProperty("--tap-x", `${targetX.toFixed(2)}px`);
+  loginArt.style.setProperty("--tap-y", `${targetY.toFixed(2)}px`);
+  loginScreen.classList.remove("is-pointer-pulse");
+  void loginScreen.offsetWidth;
+  loginScreen.classList.add("is-pointer-pulse");
+
+  window.clearTimeout(loginPointerResetTimer);
+  loginPointerResetTimer = window.setTimeout(resetLoginPointerTracking, 760);
+}
+
+/**
+ * Muestra u oculta el mensaje debajo del formulario de acceso.
+ *
+ * @param {string} message Texto visible para el usuario.
+ * @param {string} type Variante visual: `warning`, `success` o `info`.
+ */
+function setLoginMessage(message, type = "warning") {
+  if (!routerLoginMessage) {
+    return;
+  }
+
+  routerLoginMessage.hidden = !message;
+  routerLoginMessage.textContent = message || "";
+  routerLoginMessage.className = `login-message ${type}`;
+}
+
+/**
+ * Reinicia la animacion de error inspirada en el login de referencia.
+ *
+ * @param {string} message Texto de error a mostrar.
+ */
+function triggerLoginError(message) {
+  if (!loginScreen) {
+    return;
+  }
+
+  resetLoginPointerTracking();
+  setLoginMessage(message, "warning");
+  loginScreen.classList.remove("is-login-error");
+  void loginScreen.offsetWidth;
+  loginScreen.classList.add("is-login-error", "has-login-error");
+  setLoginIntent("error");
+
+  clearTimeout(loginErrorTimer);
+  loginErrorTimer = window.setTimeout(() => {
+    loginScreen.classList.remove("is-login-error");
+    setLoginIntent(routerPassword === document.activeElement ? "password" : "idle");
+  }, 900);
+}
+
+/**
+ * Limpia datos visibles y memoria de la sesion anterior en el navegador.
+ */
+function clearSensitivePanelState() {
+  window.clearInterval(radarRevealTimer);
+  window.clearTimeout(siteActionPreviewTimer);
+  devices = [];
+  deviceHistoryItems = [];
+  blockedMacs = [];
+  siteProfiles = [];
+  guestConfigs = {};
+  pendingAction = null;
+  primaryLoaded = false;
+  guestLoaded = false;
+  parentalLoaded = false;
+  devicesLoading = false;
+  lastDevicePayload = null;
+  hasBlockedSnapshot = false;
+  accessStateOverrides.clear();
+
+  if (deviceSearch) {
+    deviceSearch.value = "";
+  }
+
+  if (historySearch) {
+    historySearch.value = "";
+  }
+
+  [historyCategoryFilter, historyStatusFilter, historyPeriodFilter].forEach((filter) => {
+    if (filter) {
+      filter.value = "all";
+    }
+  });
+
+  document.querySelectorAll("[data-primary-field], [data-guest-field]").forEach((field) => {
+    const fieldName = field.dataset.primaryField || field.dataset.guestField;
+
+    if (field.type === "checkbox") {
+      field.checked = false;
+    } else {
+      field.value = "";
+    }
+
+    if (fieldName === "password") {
+      field.type = "password";
+      const toggle = field.closest(".password-field")?.querySelector(".password-toggle");
+      toggle?.classList.remove("is-visible");
+      toggle?.setAttribute("aria-label", "Mostrar contrasena");
+
+      if (toggle) {
+        toggle.title = "Mostrar contrasena";
+      }
+    }
+  });
+
+  document.querySelectorAll("[data-primary-state]").forEach((badge) => {
+    badge.textContent = "Sin lectura";
+    badge.className = "badge warning";
+  });
+
+  if (siteScopeMac) {
+    siteScopeMac.value = "";
+  }
+
+  if (siteHardening) {
+    siteHardening.checked = false;
+  }
+
+  if (aliasInput) {
+    aliasInput.value = "";
+  }
+
+  closeActionModal();
+  setNotice("");
+  [accessNotice, primaryNotice, guestNotice, scanNotice, parentalNotice]
+    .forEach((notice) => setBoxNotice(notice, ""));
+  renderDevices();
+  renderDeviceHistory();
+  renderDashboardActivity();
+  renderAccessControls();
+  renderSiteProfiles();
+  updateGuestMetric();
+
+  networkRadar?.classList.remove("is-scanning");
+  scanProgress.hidden = true;
+  syncRadar({});
+
+  metricConnected.textContent = "0";
+  metricNewToday.textContent = "0 nuevos hoy";
+  metricBlocked.textContent = "--";
+  metricBlockedDetail.textContent = "Sin lectura";
+  dashboardFreshness.textContent = "Sin lectura";
+  deviceFreshness.textContent = "Sin lectura";
+
+  if (homeNetworkName) {
+    homeNetworkName.textContent = "Detectando...";
+  }
+
+  if (homeNetworkBand) {
+    homeNetworkBand.textContent = "Interfaz WiFi";
+  }
+
+  if (homeDeviceStatus) {
+    homeDeviceStatus.textContent = "Esperando lectura";
+  }
+
+  if (homeRouterStatus) {
+    homeRouterStatus.textContent = "Interfaz pendiente";
+  }
+}
+
+/**
+ * Vuelve al bloqueo de acceso local.
+ *
+ * @param {string} message Mensaje opcional para explicar por que se solicita login.
+ */
+function showLoginScreen(message = "") {
+  clearTimeout(deviceRefreshTimer);
+  resetLoginPointerTracking();
+  clearSensitivePanelState();
+  document.body.classList.add("is-auth-locked");
+  document.body.classList.remove("is-auth-ready");
+
+  if (loginScreen) {
+    loginScreen.hidden = false;
+    loginScreen.classList.remove("is-login-loading", "is-login-success");
+    setLoginIntent("idle");
+  }
+
+  if (routerLoginSubmit) {
+    routerLoginSubmit.disabled = false;
+    routerLoginSubmit.textContent = "Entrar";
+  }
+
+  if (routerPassword) {
+    routerPassword.value = "";
+    routerPassword.type = "password";
+  }
+
+  routerLoginPasswordToggle?.classList.remove("is-visible");
+  routerLoginPasswordToggle?.setAttribute("aria-label", "Mostrar contrasena");
+
+  if (routerLoginPasswordToggle) {
+    routerLoginPasswordToggle.title = "Mostrar contrasena";
+  }
+
+  setLoginMessage(message);
+
+  window.setTimeout(() => {
+    const target = routerUsername?.value ? routerPassword : routerUsername;
+    target?.focus();
+  }, 80);
+}
+
+/**
+ * Entra al panel despues de validar credenciales contra el router.
+ *
+ * @param {object} authData Informacion publica de la sesion.
+ */
+function enterPanel(authData = {}) {
+  resetLoginPointerTracking();
+  document.body.classList.remove("is-auth-locked");
+  document.body.classList.add("is-auth-ready");
+
+  if (loginScreen) {
+    loginScreen.hidden = true;
+    loginScreen.classList.remove("is-login-loading", "is-login-error", "has-login-error");
+  }
+
+  if (routerPassword) {
+    routerPassword.value = "";
+  }
+
+  if (routerStatusText) {
+    routerStatusText.textContent = "Leyendo interfaz WiFi";
+  }
+
+  if (routerStatusAddress) {
+    routerStatusAddress.textContent = "Comprobando conexion local";
+  }
+
+  showView("dashboard");
+  loadDevices({ silent: true });
+  loadGuestConfig();
+}
+
+/**
+ * Verifica si hay una sesion local antes de mostrar datos del panel.
+ */
+async function initializeAuthGate() {
+  try {
+    const data = await apiRequest("/api/auth/status");
+
+    if (data.authenticated) {
+      enterPanel(data);
+      return;
+    }
+
+    showLoginScreen();
+  } catch (error) {
+    showLoginScreen("No se pudo comprobar la sesion local del panel.");
+  }
+}
+
+/**
+ * Envia usuario y clave del router para abrir una sesion temporal.
+ *
+ * @param {Event} event Evento submit del formulario.
+ */
+async function submitRouterLogin(event) {
+  event.preventDefault();
+
+  const username = routerUsername?.value.trim() || "";
+  const password = routerPassword?.value || "";
+
+  if (!username || !password) {
+    triggerLoginError("Escriba el usuario y la contrasena del router KAON.");
+    return;
+  }
+
+  loginScreen?.classList.add("is-login-loading");
+  loginScreen?.classList.remove("has-login-error");
+  setLoginIntent("loading");
+  setLoginMessage("Validando la combinacion KAON...", "info");
+  routerLoginSubmit.disabled = true;
+  routerLoginSubmit.textContent = "Validando...";
+
+  try {
+    const data = await apiRequest("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+    loginScreen?.classList.add("is-login-success");
+    setLoginMessage("Credenciales aceptadas. Entrando al panel...", "success");
+    window.setTimeout(() => enterPanel(data), 420);
+  } catch (error) {
+    routerLoginSubmit.disabled = false;
+    routerLoginSubmit.textContent = "Entrar";
+    loginScreen?.classList.remove("is-login-loading");
+    triggerLoginError(error.message || "El usuario y la contrasena no coinciden.");
+  }
+}
+
+/**
  * Activa una vista del panel y carga datos diferidos cuando corresponde.
  *
  * @param {string} viewId Identificador del `<section>` a mostrar.
  */
 function showView(viewId) {
+  document.body.classList.toggle("is-dashboard-home", viewId === "dashboard");
+
   views.forEach((view) => {
     view.classList.toggle("is-visible", view.id === viewId);
   });
@@ -114,6 +547,10 @@ function showView(viewId) {
 
   if (viewId === "access") {
     renderAccessControls();
+  }
+
+  if (viewId === "history") {
+    loadHistory();
   }
 
   if (viewId === "wifi" && !primaryLoaded) {
@@ -1069,6 +1506,22 @@ function eventLabel(event) {
     connected: "Se conecto",
     disconnected: "Se desconecto",
     moved: "Cambio de red",
+    alias_updated: "Nombre actualizado",
+    device_forgotten: "Dispositivo olvidado",
+    user_blocked: "Usuario bloqueado",
+    user_unblocked: "Usuario desbloqueado",
+    user_block_failed: "Bloqueo no confirmado",
+    user_unblock_failed: "Desbloqueo no confirmado",
+    primary_updated: "Red primaria actualizada",
+    guest_updated: "Red de invitados actualizada",
+    site_blocked: "Sitio bloqueado",
+    site_unblocked: "Sitio desbloqueado",
+    network_scanned: "Escaneo completado",
+    scan_failed: "Escaneo no iniciado",
+    login_success: "Sesion iniciada",
+    login_failed: "Acceso rechazado",
+    logout: "Sesion cerrada",
+    operation_failed: "Operacion fallida",
   };
 
   return labels[event] || "Actividad";
@@ -1080,16 +1533,39 @@ function eventLabel(event) {
  * @param {string} event Tipo de evento guardado.
  * @returns {string} Clase CSS corta.
  */
-function eventClass(event) {
-  if (event === "connected") {
-    return "success";
-  }
+function eventClass(itemOrEvent) {
+  const item = typeof itemOrEvent === "object" ? itemOrEvent : { event: itemOrEvent };
 
-  if (event === "disconnected") {
+  if (item.status === "error" || item.event === "disconnected") {
     return "danger";
   }
 
-  return "";
+  if (item.status === "warning") {
+    return "warning";
+  }
+
+  if (item.status === "success" || item.event === "connected") {
+    return "success";
+  }
+
+  return "info";
+}
+
+/**
+ * Traduce la categoria tecnica de la bitacora.
+ */
+function historyCategoryLabel(category) {
+  const labels = {
+    device: "Dispositivos",
+    access: "Accesos",
+    wifi: "WiFi",
+    parental: "Control parental",
+    scan: "Escaneo",
+    session: "Sesion",
+    system: "Sistema",
+  };
+
+  return labels[category] || "Actividad";
 }
 
 /**
@@ -1099,7 +1575,89 @@ function eventClass(event) {
  * @returns {string} Nombre para mostrar.
  */
 function historyDeviceName(item) {
-  return item.alias || item.hostname || item.mac || "Dispositivo";
+  return item.subject || item.alias || item.hostname || item.mac || "Dispositivo";
+}
+
+/**
+ * Construye el titulo visible de cualquier evento de la bitacora.
+ */
+function historyItemTitle(item) {
+  const subject = historyDeviceName(item);
+
+  if (item.title) {
+    return item.subject ? `${item.title}: ${subject}` : item.title;
+  }
+
+  return `${eventLabel(item.event)}: ${subject}`;
+}
+
+/**
+ * Obtiene el detalle mas util sin depender del origen del evento.
+ */
+function historyItemDetail(item) {
+  return item.detail || item.network || item.ip || item.mac || "Sin detalle";
+}
+
+/**
+ * Comprueba el periodo seleccionado para un evento.
+ */
+function historyMatchesPeriod(item, period) {
+  if (!period || period === "all") {
+    return true;
+  }
+
+  if (period === "today") {
+    return isToday(item.created_at);
+  }
+
+  const days = Number(period);
+  const createdAt = new Date(item.created_at).getTime();
+
+  if (!Number.isFinite(days) || Number.isNaN(createdAt)) {
+    return true;
+  }
+
+  return createdAt >= Date.now() - (days * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Aplica los filtros visibles a la cronologia cargada.
+ */
+function filteredHistoryItems() {
+  const search = String(historySearch?.value || "").trim().toLowerCase();
+  const category = historyCategoryFilter?.value || "all";
+  const status = historyStatusFilter?.value || "all";
+  const period = historyPeriodFilter?.value || "all";
+
+  return deviceHistoryItems.filter((item) => {
+    if (category !== "all" && item.category !== category) {
+      return false;
+    }
+
+    if (status !== "all" && item.status !== status) {
+      return false;
+    }
+
+    if (!historyMatchesPeriod(item, period)) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    const searchable = [
+      historyItemTitle(item),
+      historyItemDetail(item),
+      eventLabel(item.event),
+      historyCategoryLabel(item.category),
+      item.mac,
+      item.network,
+      item.band,
+    ].join(" ").toLowerCase();
+
+    return searchable.includes(search);
+  });
 }
 
 /**
@@ -1110,28 +1668,78 @@ function renderDeviceHistory() {
     return;
   }
 
+  const filteredItems = filteredHistoryItems();
+
+  if (historyResultCount) {
+    historyResultCount.textContent = `${filteredItems.length} de ${deviceHistoryItems.length} eventos`;
+  }
+
   if (deviceHistoryItems.length === 0) {
     deviceHistory.innerHTML = `<li class="history-empty">Sin eventos recientes.</li>`;
     return;
   }
 
-  deviceHistory.innerHTML = deviceHistoryItems.map((item) => {
-    const name = historyDeviceName(item);
-    const detail = item.detail || item.network || item.ip || item.mac;
+  if (filteredItems.length === 0) {
+    deviceHistory.innerHTML = `<li class="history-empty">No hay eventos que coincidan con los filtros.</li>`;
+    return;
+  }
+
+  deviceHistory.innerHTML = filteredItems.map((item) => {
+    const title = historyItemTitle(item);
+    const detail = historyItemDetail(item);
+    const category = item.category || "device";
+    const canForget = item.source === "presence" && Boolean(item.mac);
 
     return `
       <li>
-        <span class="history-dot ${eventClass(item.event)}" aria-hidden="true"></span>
-        <div>
-          <strong>${escapeHtml(eventLabel(item.event))}: ${escapeHtml(name)}</strong>
-          <p>${escapeHtml(detail || "Sin detalle")} - ${escapeHtml(formatTimestamp(item.created_at))}</p>
+        <span class="history-dot ${eventClass(item)}" aria-hidden="true"></span>
+        <div class="history-event-copy">
+          <div class="history-event-heading">
+            <strong>${escapeHtml(title)}</strong>
+            <span class="history-category ${escapeHtml(category)}">${escapeHtml(historyCategoryLabel(category))}</span>
+          </div>
+          <p>${escapeHtml(detail)}</p>
+          <div class="history-event-meta">
+            <time datetime="${escapeHtml(item.created_at || "")}">${escapeHtml(formatTimestamp(item.created_at))}</time>
+            <span>${escapeHtml(eventLabel(item.event))}</span>
+          </div>
         </div>
-        <button class="history-forget" type="button" data-action="forget" data-mac="${escapeHtml(item.mac)}" data-device-name="${escapeHtml(name)}">
-          Olvidar
-        </button>
+        ${canForget ? `
+          <button class="history-forget" type="button" data-action="forget" data-mac="${escapeHtml(item.mac)}" data-device-name="${escapeHtml(historyDeviceName(item))}">
+            Olvidar
+          </button>
+        ` : ""}
       </li>
     `;
   }).join("");
+}
+
+/**
+ * Carga la bitacora sin volver a consultar todas las interfaces del router.
+ */
+async function loadHistory() {
+  if (historyLoading) {
+    return;
+  }
+
+  historyLoading = true;
+
+  if (historyResultCount) {
+    historyResultCount.textContent = "Actualizando...";
+  }
+
+  try {
+    const data = await apiRequest("/api/history?limit=500");
+    deviceHistoryItems = data.events || [];
+    renderDeviceHistory();
+    renderDashboardActivity();
+  } catch (error) {
+    if (!error.authRequired && historyResultCount) {
+      historyResultCount.textContent = "No se pudo actualizar";
+    }
+  } finally {
+    historyLoading = false;
+  }
 }
 
 /**
@@ -1150,7 +1758,7 @@ function renderDashboardActivity() {
         <span class="activity-dot"></span>
         <div>
           <strong>Sin actividad reciente</strong>
-          <p>La siguiente lectura registrara conexiones o desconexiones.</p>
+          <p>Las nuevas conexiones y operaciones apareceran aqui.</p>
         </div>
       </li>
     `;
@@ -1158,14 +1766,100 @@ function renderDashboardActivity() {
   }
 
   activityList.innerHTML = recent.map((item) => `
-    <li>
-      <span class="activity-dot ${eventClass(item.event)}"></span>
-      <div>
-        <strong>${escapeHtml(eventLabel(item.event))}: ${escapeHtml(historyDeviceName(item))}</strong>
-        <p>${escapeHtml(item.network || item.ip || item.mac)} - ${escapeHtml(formatTimestamp(item.created_at))}</p>
-      </div>
-    </li>
-  `).join("");
+      <li>
+        <span class="activity-dot ${eventClass(item)}"></span>
+        <div>
+          <strong>${escapeHtml(historyItemTitle(item))}</strong>
+          <p>${escapeHtml(historyItemDetail(item))} - ${escapeHtml(formatTimestamp(item.created_at))}</p>
+        </div>
+      </li>
+    `).join("");
+}
+
+/**
+ * Describe la red WiFi usada por esta computadora y distingue invitados.
+ */
+function connectedInterfaceSummary(data = {}) {
+  const hostWifi = data.host_wifi || lastDevicePayload?.host_wifi || {};
+  const ssid = String(hostWifi.ssid || "").trim();
+
+  if (!ssid) {
+    return null;
+  }
+
+  const normalizedSsid = ssid.toLowerCase();
+  const guestBand = WIFI_BANDS.find((band) => (
+    String(guestConfigs[band.value]?.ssid || "").trim().toLowerCase() === normalizedSsid
+  ));
+  const band = guestBand?.value || String(hostWifi.band || "").trim();
+  const bandLabel = band ? `${band} GHz` : "WiFi";
+
+  return {
+    title: `${guestBand ? "Invitados" : "Red primaria"} ${bandLabel}`,
+    ssid,
+  };
+}
+
+/**
+ * Pinta en la tarjeta lateral la interfaz real usada por esta computadora.
+ */
+function updateRouterConnectionCard(data = {}) {
+  const currentData = Object.keys(data).length > 0 ? data : lastDevicePayload || {};
+  const routerReachable = currentData.router_reachable === true;
+  const connection = connectedInterfaceSummary(currentData);
+
+  if (connection) {
+    if (routerStatusText) {
+      routerStatusText.textContent = connection.title;
+    }
+
+    if (routerStatusAddress) {
+      routerStatusAddress.textContent = routerReachable
+        ? currentData.warning
+          ? `${connection.ssid} - lectura parcial`
+          : connection.ssid
+        : `${connection.ssid} - sin lectura`;
+    }
+
+    if (homeNetworkName) {
+      homeNetworkName.textContent = connection.ssid;
+    }
+
+    if (homeNetworkBand) {
+      homeNetworkBand.textContent = connection.title;
+    }
+
+    if (homeRouterStatus) {
+      homeRouterStatus.textContent = `${connection.title} - ${connection.ssid}`;
+    }
+  } else {
+    const fallbackTitle = routerReachable ? "Interfaz KAON activa" : "Interfaz sin confirmar";
+
+    if (routerStatusText) {
+      routerStatusText.textContent = fallbackTitle;
+    }
+
+    if (routerStatusAddress) {
+      routerStatusAddress.textContent = routerReachable
+        ? "Lectura en vivo"
+        : "Datos locales disponibles";
+    }
+
+    if (homeNetworkName) {
+      homeNetworkName.textContent = fallbackTitle;
+    }
+
+    if (homeNetworkBand) {
+      homeNetworkBand.textContent = routerReachable ? "Router KAON" : "Sin lectura local";
+    }
+
+    if (homeRouterStatus) {
+      homeRouterStatus.textContent = fallbackTitle;
+    }
+  }
+
+  routerStatusCard?.classList.toggle("is-offline", !routerReachable);
+  routerStatusDot?.classList.toggle("is-offline", !routerReachable);
 }
 
 /**
@@ -1182,7 +1876,6 @@ function updateDashboard(data = {}) {
     item.event === "connected" && isToday(item.created_at)
   )).map((item) => item.mac)).size;
   const nowText = `Ultima lectura: ${formatTimestamp(new Date().toISOString())}`;
-  const routerReachable = currentData.router_reachable === true;
 
   if (metricConnected) {
     metricConnected.textContent = activeCount;
@@ -1190,6 +1883,10 @@ function updateDashboard(data = {}) {
 
   if (metricNewToday) {
     metricNewToday.textContent = `${newToday} nuevos hoy`;
+  }
+
+  if (homeDeviceStatus) {
+    homeDeviceStatus.textContent = `${activeCount} ${activeCount === 1 ? "conectado" : "conectados"}`;
   }
 
   if (metricBlocked) {
@@ -1227,14 +1924,7 @@ function updateDashboard(data = {}) {
     deviceFreshness.textContent = `${nowText} - auto ${autoRefreshEnabled ? "activo" : "pausado"}`;
   }
 
-  if (routerStatusText && routerStatusAddress) {
-    routerStatusText.textContent = routerReachable ? "Router conectado" : "Router sin respuesta";
-    routerStatusAddress.textContent = routerReachable
-      ? currentData.warning ? "Lectura parcial disponible" : "Lectura en vivo"
-      : "Datos locales disponibles";
-    routerStatusCard.classList.toggle("is-offline", !routerReachable);
-    routerStatusDot.classList.toggle("is-offline", !routerReachable);
-  }
+  updateRouterConnectionCard(currentData);
 
   renderDashboardActivity();
   renderAccessControls();
@@ -1247,7 +1937,7 @@ function updateDashboard(data = {}) {
 function scheduleDeviceRefresh() {
   window.clearTimeout(deviceRefreshTimer);
 
-  if (!autoRefreshEnabled) {
+  if (!autoRefreshEnabled || document.body.classList.contains("is-auth-locked")) {
     return;
   }
 
@@ -1275,12 +1965,49 @@ function toggleAutoRefresh() {
  * Recarga el panel local desde un boton visible tambien en pantallas tactiles.
  */
 function reloadPanelPage() {
+  [reloadPanel, homeReloadPanel].forEach((button) => {
+    if (button) {
+      button.disabled = true;
+    }
+  });
+
   if (reloadPanel) {
-    reloadPanel.disabled = true;
     reloadPanel.textContent = "Reiniciando...";
   }
 
   window.location.reload();
+}
+
+/**
+ * Cierra la sesion local del router y vuelve a bloquear el panel.
+ */
+async function logoutPanelSession() {
+  [logoutPanel, homeLogoutPanel].forEach((button) => {
+    if (button) {
+      button.disabled = true;
+    }
+  });
+
+  if (logoutPanel) {
+    logoutPanel.textContent = "Saliendo...";
+  }
+
+  try {
+    await apiRequest("/api/auth/logout", { method: "POST" });
+  } catch (error) {
+    // El logout local debe bloquear el panel aunque el servidor ya no tenga sesion.
+  } finally {
+    if (logoutPanel) {
+      logoutPanel.disabled = false;
+      logoutPanel.textContent = "Salir";
+    }
+
+    if (homeLogoutPanel) {
+      homeLogoutPanel.disabled = false;
+    }
+
+    showLoginScreen("Sesion cerrada.");
+  }
 }
 
 /**
@@ -1291,14 +2018,38 @@ function reloadPanelPage() {
  * @returns {Promise<object>} Cuerpo JSON validado.
  */
 async function apiRequest(url, options = {}) {
+  const { headers = {}, ...fetchOptions } = options;
   const response = await fetch(url, {
+    ...fetchOptions,
     headers: {
       "Content-Type": "application/json",
-      ...(options.headers || {}),
+      ...headers,
     },
-    ...options,
   });
-  const data = await response.json();
+  const contentType = response.headers.get("Content-Type") || "";
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    await response.text();
+    const liveServerHint = window.location.port === "5500"
+      ? "Abra el panel desde http://127.0.0.1:8001 despues de ejecutar python src/main_web.py; Live Server no responde las rutas /api/."
+      : "Revise que este activo el servidor Python del panel y que no se este abriendo solo como archivo estatico.";
+    throw new Error(`La API local no respondio JSON (${response.status}). ${liveServerHint}`);
+  }
+
+  let data;
+
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error("La API local devolvio una respuesta JSON invalida. Reinicie el servidor Python del panel.");
+  }
+
+  if (response.status === 401 && data.auth_required) {
+    showLoginScreen(data.error || "Inicie sesion con las credenciales del router KAON.");
+    const authError = new Error(data.error || "Sesion requerida.");
+    authError.authRequired = true;
+    throw authError;
+  }
 
   if (!response.ok || data.ok === false) {
     throw new Error(data.error || "No se pudo completar la accion.");
@@ -1332,7 +2083,10 @@ async function loadDevices(options = {}) {
   try {
     const data = await apiRequest("/api/devices");
     devices = data.devices || [];
-    deviceHistoryItems = data.history || [];
+
+    if (!historyView?.classList.contains("is-visible")) {
+      deviceHistoryItems = data.history || [];
+    }
 
     if (data.blocked_macs_available !== false) {
       blockedMacs = data.blocked_macs || [];
@@ -1356,6 +2110,10 @@ async function loadDevices(options = {}) {
     renderDeviceHistory();
     updateDashboard(data);
   } catch (error) {
+    if (error.authRequired) {
+      return;
+    }
+
     setNotice(`No se pudo actualizar: ${error.message}. Se conservan los ultimos datos reales disponibles.`, "warning");
 
     if (devices.length === 0) {
@@ -1375,10 +2133,7 @@ async function loadDevices(options = {}) {
 
     dashboardFreshness.textContent = "Ultima lectura: fallo la actualizacion";
     deviceFreshness.textContent = `Actualizacion fallida - auto ${autoRefreshEnabled ? "activo" : "pausado"}`;
-    routerStatusText.textContent = "Router sin confirmar";
-    routerStatusAddress.textContent = "Sin lectura reciente";
-    routerStatusCard.classList.add("is-offline");
-    routerStatusDot.classList.add("is-offline");
+    updateRouterConnectionCard(lastDevicePayload || {});
     renderAccessControls();
   } finally {
     devicesLoading = false;
@@ -1502,19 +2257,20 @@ function populateClientLimit(input, config = {}) {
     return;
   }
 
-  const supported = config.limite_clientes_soportado !== false;
   const max = Number(config.limite_clientes_max || input.max || 20);
+  const managed = config.limite_clientes_origen === "panel"
+    || config.limite_clientes_administrado;
   input.min = "0";
   input.max = String(max);
-  input.disabled = !supported;
-  input.placeholder = supported ? `0-${max}` : "No disponible";
-  input.title = supported
-    ? `Limite permitido por esta interfaz: 0-${max}`
-    : "El firmware KAON no expone un campo de limite para esta interfaz.";
+  input.disabled = false;
+  input.placeholder = `0-${max}`;
+  input.title = managed
+    ? `Limite administrado por el panel: 0-${max}`
+    : `Limite permitido por esta interfaz: 0-${max}`;
   input.value = config.limite_clientes === null || config.limite_clientes === undefined
     ? ""
     : String(config.limite_clientes);
-  input.closest("label")?.classList.toggle("is-disabled", !supported);
+  input.closest("label")?.classList.remove("is-disabled");
 }
 
 /**
@@ -1650,6 +2406,10 @@ function updateGuestMetric() {
   if (metricGuestSsid) {
     metricGuestSsid.textContent = ssidText || "SSID sin leer";
   }
+
+  if (lastDevicePayload) {
+    updateRouterConnectionCard(lastDevicePayload);
+  }
 }
 
 /**
@@ -1717,6 +2477,10 @@ async function updatePrimaryConfig(band) {
 
     if (primaryLoaded) {
       setBoxNotice(primaryNotice, data.message || "Cambios guardados.", "success");
+    }
+
+    if (maxClients !== null) {
+      loadDevices({ silent: true });
     }
   } catch (error) {
     setBoxNotice(primaryNotice, error.message, "warning");
@@ -1793,6 +2557,10 @@ async function updateGuestConfig(band) {
 
     if (guestLoaded) {
       setBoxNotice(guestNotice, data.message || "Cambios guardados.", "success");
+    }
+
+    if (maxClients !== null) {
+      loadDevices({ silent: true });
     }
   } catch (error) {
     setBoxNotice(guestNotice, error.message, "warning");
@@ -2134,9 +2902,60 @@ deviceTypeFilter.addEventListener("change", renderDevices);
 deviceStatusFilter.addEventListener("change", renderDevices);
 refreshDevices.addEventListener("click", () => loadDevices());
 reloadPanel?.addEventListener("click", reloadPanelPage);
+logoutPanel?.addEventListener("click", logoutPanelSession);
+homeReloadPanel?.addEventListener("click", reloadPanelPage);
+homeLogoutPanel?.addEventListener("click", logoutPanelSession);
 autoRefreshDevices.addEventListener("click", toggleAutoRefresh);
 clearDeviceHistory.addEventListener("click", clearHistory);
+historySearch?.addEventListener("input", renderDeviceHistory);
+[historyCategoryFilter, historyStatusFilter, historyPeriodFilter].forEach((filter) => {
+  filter?.addEventListener("change", renderDeviceHistory);
+});
 blockSelectedUser.addEventListener("click", blockSelectedAccessUser);
+routerLoginForm?.addEventListener("submit", submitRouterLogin);
+loginScreen?.addEventListener("pointermove", (event) => {
+  const hasFinePointer = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
+  if (event.pointerType === "touch" || !hasFinePointer) {
+    return;
+  }
+
+  queueLoginPointer(event.clientX, event.clientY);
+});
+loginScreen?.addEventListener("pointerleave", (event) => {
+  if (event.pointerType !== "touch") {
+    resetLoginPointerTracking();
+  }
+});
+loginScreen?.addEventListener("pointerdown", (event) => {
+  const mobileLayout = window.matchMedia("(max-width: 720px)").matches;
+
+  if (event.pointerType === "touch" || mobileLayout) {
+    pulseLoginTouch(event.clientX, event.clientY);
+  }
+});
+routerUsername?.addEventListener("focus", () => setLoginIntent("user"));
+routerPassword?.addEventListener("focus", () => setLoginIntent("password"));
+routerUsername?.addEventListener("input", () => {
+  loginScreen?.classList.remove("has-login-error");
+  setLoginMessage("");
+  setLoginIntent("user");
+});
+routerPassword?.addEventListener("input", () => {
+  loginScreen?.classList.remove("has-login-error");
+  setLoginMessage("");
+  setLoginIntent("password");
+});
+loginSuggestions.forEach((button) => {
+  button.addEventListener("click", () => {
+    routerUsername.value = button.dataset.loginUsername || "";
+    routerPassword.value = button.dataset.loginPassword || "";
+    loginScreen?.classList.remove("has-login-error");
+    setLoginMessage("");
+    setLoginIntent("password");
+    routerPassword.focus();
+  });
+});
 primarySaveButtons.forEach((button) => {
   button.addEventListener("click", () => updatePrimaryConfig(button.dataset.primarySave));
 });
@@ -2175,10 +2994,9 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && autoRefreshEnabled) {
+  if (!document.hidden && autoRefreshEnabled && !document.body.classList.contains("is-auth-locked")) {
     loadDevices({ silent: true });
   }
 });
 
-loadDevices({ silent: true });
-loadGuestConfig();
+initializeAuthGate();

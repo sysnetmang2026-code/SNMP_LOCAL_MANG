@@ -173,7 +173,7 @@ class KaonRouterClient:
         """
 
         if not username or not password:
-            raise ValueError("Faltan ROUTER_USER o ROUTER_PASS en env/credenciales.env")
+            raise ValueError("Faltan el usuario o la contrasena del router KAON")
 
         self.router_url = router_url.rstrip("/")
         self.username = username

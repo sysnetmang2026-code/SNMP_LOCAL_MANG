@@ -8,11 +8,19 @@ Todas las operaciones se apoyan en SQLite y usan la ruta centralizada en
 `config.DATABASE_PATH`.
 """
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 
 from config import DATABASE_PATH
 from validators import normalize_mac
+
+
+WIFI_CLIENT_LIMIT_MAX = 20
+WIFI_LIMIT_KINDS = {"primary", "guest"}
+WIFI_LIMIT_BANDS = {"2.4", "5"}
+AUDIT_EVENT_STATUSES = {"success", "info", "warning", "error"}
+AUDIT_SENSITIVE_PARTS = ("password", "passwd", "secret", "token", "credential")
 
 
 def _connect():
@@ -66,6 +74,36 @@ def ensure_device_tables():
                 detail TEXT,
                 created_at TEXT NOT NULL
             )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS wifi_client_limits (
+                interface_kind TEXT NOT NULL,
+                band TEXT NOT NULL,
+                limit_value INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (interface_kind, band)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                event TEXT NOT NULL,
+                status TEXT NOT NULL,
+                title TEXT NOT NULL,
+                subject TEXT,
+                detail TEXT,
+                metadata_json TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_audit_events_created_at
+            ON audit_events(created_at DESC)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_audit_events_category
+            ON audit_events(category)
         """)
         conn.commit()
 
@@ -373,6 +411,216 @@ def clear_presence_events():
         conn.commit()
 
 
+def _redact_audit_metadata(value):
+    """Elimina secretos de metadatos antes de serializarlos en la bitacora."""
+
+    if isinstance(value, dict):
+        safe = {}
+
+        for key, item in value.items():
+            key_text = str(key)
+            lowered = key_text.lower()
+            safe[key_text] = (
+                "[redacted]"
+                if any(part in lowered for part in AUDIT_SENSITIVE_PARTS)
+                else _redact_audit_metadata(item)
+            )
+
+        return safe
+
+    if isinstance(value, (list, tuple)):
+        return [_redact_audit_metadata(item) for item in value]
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    return str(value)
+
+
+def record_audit_event(
+    category,
+    event,
+    title,
+    subject="",
+    detail="",
+    status="success",
+    metadata=None,
+):
+    """Registra una operacion del panel sin persistir datos sensibles."""
+
+    category = str(category or "system").strip().lower()[:32]
+    event = str(event or "activity").strip().lower()[:64]
+    status = str(status or "info").strip().lower()
+    title = str(title or "Actividad del panel").strip()[:160]
+    subject = str(subject or "").strip()[:180]
+    detail = str(detail or "").strip()[:1000]
+
+    if status not in AUDIT_EVENT_STATUSES:
+        status = "info"
+
+    safe_metadata = _redact_audit_metadata(metadata or {})
+    created_at = _utc_now()
+    ensure_device_tables()
+
+    with _connect() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO audit_events
+                (category, event, status, title, subject, detail,
+                 metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                category,
+                event,
+                status,
+                title,
+                subject,
+                detail,
+                json.dumps(safe_metadata, ensure_ascii=True, sort_keys=True),
+                created_at,
+            ),
+        )
+        conn.commit()
+
+    return {
+        "id": f"audit:{cursor.lastrowid}",
+        "source": "audit",
+        "category": category,
+        "event": event,
+        "status": status,
+        "title": title,
+        "subject": subject,
+        "detail": detail,
+        "metadata": safe_metadata,
+        "created_at": created_at,
+    }
+
+
+def _presence_activity_event(item):
+    """Normaliza un evento de presencia al contrato general de actividad."""
+
+    event = item.get("event", "activity")
+    status = "success" if event == "connected" else "info"
+    subject = item.get("alias") or item.get("hostname") or item.get("mac") or "Dispositivo"
+
+    return {
+        **item,
+        "id": f"presence:{item.get('id', '')}",
+        "source": "presence",
+        "category": "device",
+        "status": status,
+        "title": "",
+        "subject": subject,
+        "metadata": {},
+    }
+
+
+def list_activity_events(limit=200, category="", status="", event="", query=""):
+    """Combina presencia y auditoria en una cronologia filtrable."""
+
+    ensure_device_tables()
+    limit = max(1, min(int(limit or 200), 500))
+    category = str(category or "").strip().lower()
+    status = str(status or "").strip().lower()
+    event = str(event or "").strip().lower()
+    query = str(query or "").strip().lower()
+    items = []
+
+    if category in ("", "all", "device"):
+        for row in list_presence_events(limit=limit):
+            item = _presence_activity_event(row)
+
+            if status and status != "all" and item["status"] != status:
+                continue
+
+            if event and event != "all" and item["event"] != event:
+                continue
+
+            items.append(item)
+
+    if category != "presence":
+        clauses = []
+        values = []
+
+        if category and category != "all":
+            clauses.append("category = ?")
+            values.append(category)
+
+        if status and status != "all":
+            clauses.append("status = ?")
+            values.append(status)
+
+        if event and event != "all":
+            clauses.append("event = ?")
+            values.append(event)
+
+        where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+        with _connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                f"""
+                SELECT id, category, event, status, title, subject, detail,
+                       metadata_json, created_at
+                FROM audit_events
+                {where_clause}
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (*values, limit),
+            ).fetchall()
+
+        for row in rows:
+            item = dict(row)
+            raw_metadata = item.pop("metadata_json", "")
+
+            try:
+                item["metadata"] = json.loads(raw_metadata or "{}")
+            except json.JSONDecodeError:
+                item["metadata"] = {}
+
+            item["id"] = f"audit:{item['id']}"
+            item["source"] = "audit"
+            items.append(item)
+
+    if query:
+        searchable_fields = (
+            "category",
+            "event",
+            "title",
+            "subject",
+            "detail",
+            "alias",
+            "hostname",
+            "mac",
+            "network",
+            "band",
+        )
+        items = [
+            item
+            for item in items
+            if query in " ".join(str(item.get(field, "")) for field in searchable_fields).lower()
+        ]
+
+    items.sort(
+        key=lambda item: (item.get("created_at", ""), str(item.get("id", ""))),
+        reverse=True,
+    )
+    return items[:limit]
+
+
+def clear_activity_events():
+    """Borra eventos de presencia y auditoria sin olvidar dispositivos."""
+
+    ensure_device_tables()
+
+    with _connect() as conn:
+        conn.execute("DELETE FROM device_presence_events")
+        conn.execute("DELETE FROM audit_events")
+        conn.commit()
+
+
 def forget_device(mac):
     """Elimina un dispositivo de las tablas locales administradas por el panel."""
 
@@ -390,6 +638,122 @@ def forget_device(mac):
             pass
 
         conn.commit()
+
+
+def normalize_wifi_limit_kind(kind):
+    """Normaliza el tipo de interfaz WiFi usado por los limites locales."""
+
+    value = str(kind or "").strip().lower()
+
+    if value not in WIFI_LIMIT_KINDS:
+        raise ValueError("La interfaz WiFi debe ser primary o guest.")
+
+    return value
+
+
+def normalize_wifi_limit_band(band):
+    """Normaliza la banda WiFi usada por los limites locales."""
+
+    value = str(band or "").strip().lower().replace("ghz", "").replace(" ", "")
+
+    if value in ("2", "24", "2.4"):
+        return "2.4"
+
+    if value in ("5", "5.0"):
+        return "5"
+
+    raise ValueError("La banda WiFi debe ser 2.4 o 5 GHz.")
+
+
+def validate_wifi_client_limit(limit_value):
+    """Valida un limite local de clientes WiFi."""
+
+    try:
+        limit = int(limit_value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("El limite de usuarios debe ser un numero.") from error
+
+    if limit < 0 or limit > WIFI_CLIENT_LIMIT_MAX:
+        raise ValueError(
+            f"El limite de usuarios debe estar entre 0 y {WIFI_CLIENT_LIMIT_MAX}."
+        )
+
+    return limit
+
+
+def set_wifi_client_limit(kind, band, limit_value):
+    """Guarda o elimina el limite local de usuarios para una interfaz WiFi."""
+
+    kind = normalize_wifi_limit_kind(kind)
+    band = normalize_wifi_limit_band(band)
+    ensure_device_tables()
+
+    with _connect() as conn:
+        if limit_value in (None, ""):
+            conn.execute(
+                """
+                DELETE FROM wifi_client_limits
+                WHERE interface_kind = ? AND band = ?
+                """,
+                (kind, band),
+            )
+            conn.commit()
+            return None
+
+        limit = validate_wifi_client_limit(limit_value)
+        conn.execute(
+            """
+            INSERT INTO wifi_client_limits
+                (interface_kind, band, limit_value, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(interface_kind, band) DO UPDATE SET
+                limit_value = excluded.limit_value,
+                updated_at = excluded.updated_at
+            """,
+            (kind, band, limit, _utc_now()),
+        )
+        conn.commit()
+
+    return limit
+
+
+def get_wifi_client_limit(kind, band):
+    """Devuelve el limite local de usuarios para una interfaz, si existe."""
+
+    kind = normalize_wifi_limit_kind(kind)
+    band = normalize_wifi_limit_band(band)
+    ensure_device_tables()
+
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT limit_value
+            FROM wifi_client_limits
+            WHERE interface_kind = ? AND band = ?
+            """,
+            (kind, band),
+        ).fetchone()
+
+    return int(row[0]) if row else None
+
+
+def get_wifi_client_limits():
+    """Devuelve todos los limites locales indexados por `(tipo, banda)`."""
+
+    ensure_device_tables()
+
+    with _connect() as conn:
+        rows = conn.execute("""
+            SELECT interface_kind, band, limit_value
+            FROM wifi_client_limits
+        """).fetchall()
+
+    limits = {}
+
+    for kind, band, limit_value in rows:
+        limits[(kind, band)] = int(limit_value)
+
+    return limits
 
 
 def list_scanned_devices():

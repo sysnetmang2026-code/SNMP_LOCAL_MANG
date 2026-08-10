@@ -9,10 +9,15 @@ cambios accidentales.
 
 from getpass import getpass
 
+from app.device_store import (
+    WIFI_CLIENT_LIMIT_MAX,
+    get_wifi_client_limit,
+    set_wifi_client_limit,
+)
 from config import DATABASE_PATH, ROUTER_PASS, ROUTER_URL, ROUTER_USER
 from network.adapters import get_subnet
 from network.nmap_scanner import EscanerRedDB
-from routers.kaon_client import KaonRouterClient, WIFI_CLIENT_LIMIT_MAX
+from routers.kaon_client import KaonRouterClient
 from validators import is_valid_mac, normalize_mac, normalize_url_keyword
 
 
@@ -531,6 +536,23 @@ def pedir_limite_usuarios():
         print(f"El limite debe estar entre 0 y {WIFI_CLIENT_LIMIT_MAX}.")
 
 
+def adjuntar_limite_local(config, interface_kind, band):
+    """Muestra en consola el limite local administrado por el panel."""
+
+    limite_local = get_wifi_client_limit(interface_kind, band)
+    native_supported = bool(config.get("limite_clientes_soportado"))
+    config["limite_clientes"] = (
+        limite_local
+        if limite_local is not None
+        else config.get("limite_clientes")
+    )
+    config["limite_clientes_soportado"] = True
+    config["limite_clientes_origen"] = (
+        "panel" if limite_local is not None or not native_supported else "router"
+    )
+    return config
+
+
 def cargar_config_red_invitados(router, band):
     """Espera y devuelve la configuracion actual de la red de invitados."""
 
@@ -542,7 +564,7 @@ def cargar_config_red_invitados(router, band):
             "Espere unos segundos e intente de nuevo."
         )
 
-    return config
+    return adjuntar_limite_local(config, "guest", band)
 
 
 def cargar_config_red_primaria(router, band):
@@ -556,7 +578,7 @@ def cargar_config_red_primaria(router, band):
             "Espere unos segundos e intente de nuevo."
         )
 
-    return config
+    return adjuntar_limite_local(config, "primary", band)
 
 
 def cambiar_ssid_red_primaria(band, etiqueta):
@@ -674,36 +696,19 @@ def configurar_limite_red_primaria(band, etiqueta):
     print(f"\nRed primaria {etiqueta}")
     print(f"SSID actual: {config['ssid'] or '(sin nombre)'}")
 
-    if not config.get("limite_clientes_soportado"):
-        print("El formulario de este firmware no expone limite de usuarios.")
-        return
-
     limite_actual = config["limite_clientes"]
-    print(f"Limite actual: {limite_actual if limite_actual is not None else '(sin leer)'}")
+    origen = "panel local" if config.get("limite_clientes_origen") == "panel" else "router"
+    print(f"Limite actual: {limite_actual if limite_actual is not None else '(sin limite)'}")
+    print(f"Origen del limite: {origen}")
     nuevo_limite = pedir_limite_usuarios()
 
     if not preguntar_si_no("Desea aplicar este limite a la red primaria?"):
         print("Operacion cancelada.")
         return
 
-    router.configurar_red_primaria(limite_clientes=nuevo_limite, band=band)
-    config_actualizada = router.esperar_config_red_primaria(
-        limite_clientes=nuevo_limite,
-        band=band,
-        timeout=25,
-        interval=2,
-    )
-
-    if (
-        config_actualizada is None
-        or config_actualizada["limite_clientes"] != nuevo_limite
-    ):
-        print("\nCambio enviado al router.")
-        print("No se pudo confirmar todavia porque el router dejo de responder unos segundos.")
-        print("Espere 10 segundos y consulte de nuevo el estado.")
-        return
-
-    print(f"\nLimite de usuarios actualizado: {config_actualizada['limite_clientes']}.")
+    set_wifi_client_limit("primary", band, nuevo_limite)
+    print(f"\nLimite de usuarios actualizado: {nuevo_limite}.")
+    print("El panel lo aplicara en cada lectura o escaneo de dispositivos.")
 
 
 def activar_red_invitados(band, etiqueta):
@@ -802,36 +807,19 @@ def configurar_limite_red_invitados(band, etiqueta):
     print(f"\nRed de invitados {etiqueta}")
     print(f"SSID actual: {config['ssid'] or '(sin nombre)'}")
 
-    if not config.get("limite_clientes_soportado"):
-        print("El formulario de este firmware no expone limite de usuarios.")
-        return
-
     limite_actual = config["limite_clientes"]
-    print(f"Limite actual: {limite_actual if limite_actual is not None else '(sin leer)'}")
+    origen = "panel local" if config.get("limite_clientes_origen") == "panel" else "router"
+    print(f"Limite actual: {limite_actual if limite_actual is not None else '(sin limite)'}")
+    print(f"Origen del limite: {origen}")
     nuevo_limite = pedir_limite_usuarios()
 
     if not preguntar_si_no("Desea aplicar este limite a la red de invitados?"):
         print("Operacion cancelada.")
         return
 
-    router.configurar_red_invitados(limite_clientes=nuevo_limite, band=band)
-    config_actualizada = router.esperar_config_red_invitados(
-        limite_clientes=nuevo_limite,
-        band=band,
-        timeout=25,
-        interval=2,
-    )
-
-    if (
-        config_actualizada is None
-        or config_actualizada["limite_clientes"] != nuevo_limite
-    ):
-        print("\nCambio enviado al router.")
-        print("No se pudo confirmar todavia porque el router dejo de responder unos segundos.")
-        print("Espere 10 segundos y consulte de nuevo el estado.")
-        return
-
-    print(f"\nLimite de invitados actualizado: {config_actualizada['limite_clientes']}.")
+    set_wifi_client_limit("guest", band, nuevo_limite)
+    print(f"\nLimite de invitados actualizado: {nuevo_limite}.")
+    print("El panel lo aplicara en cada lectura o escaneo de dispositivos.")
 
 
 def alternar_red_invitados(band, etiqueta):

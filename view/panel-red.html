@@ -7,11 +7,80 @@
   <title>Gestor WiFi KAON - Panel de red</title>
   <link rel="stylesheet" href="panel-red.css">
 </head>
-<body>
+<body class="is-auth-locked">
+  <!-- Pantalla de acceso local; las credenciales KAON se conservan solo en memoria. -->
+  <section class="login-screen" id="loginScreen" aria-labelledby="routerLoginTitle">
+    <div class="login-panel">
+      <div class="login-art" aria-hidden="true">
+        <span class="login-touch-target" id="loginTouchTarget"></span>
+        <div class="mascot-scene">
+          <span class="mascot orange">
+            <span class="eye left"></span>
+            <span class="eye right"></span>
+            <span class="mouth"></span>
+          </span>
+          <span class="mascot tower purple">
+            <span class="eye left"></span>
+            <span class="eye right"></span>
+          </span>
+          <span class="mascot tower black">
+            <span class="eye left"></span>
+            <span class="eye right"></span>
+          </span>
+          <span class="mascot yellow">
+            <span class="eye left"></span>
+            <span class="mouth"></span>
+          </span>
+        </div>
+      </div>
+
+      <form class="login-card" id="routerLoginForm" autocomplete="off" novalidate>
+        <div class="login-heading">
+          <img class="login-logo-watermark" src="assets/branding/mi-internet-logo-v2.svg" alt="" aria-hidden="true">
+          <p class="eyebrow">Router KAON</p>
+          <h1 id="routerLoginTitle">Conectar al panel</h1>
+        </div>
+
+        <div class="login-fields">
+          <label>
+            Usuario
+            <input id="routerUsername" name="username" type="text" autocomplete="off" placeholder="admin">
+          </label>
+          <label>
+            Contrasena
+            <span class="password-field">
+              <input id="routerPassword" name="password" type="password" autocomplete="off" placeholder="Clave del router">
+              <button class="icon-button password-toggle" id="routerLoginPasswordToggle" data-password-toggle type="button" aria-label="Mostrar contrasena" title="Mostrar contrasena">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </span>
+          </label>
+        </div>
+
+        <div class="login-suggestions" aria-label="Combinaciones sugeridas">
+          <button class="login-suggestion is-recommended" type="button" data-login-username="admin" data-login-password="Cl@r0">
+            <strong>admin</strong>
+            <span>Cl@r0</span>
+          </button>
+          <button class="login-suggestion" type="button" data-login-username="root" data-login-password="adminHW">
+            <strong>root</strong>
+            <span>adminHW</span>
+          </button>
+        </div>
+
+        <button class="button primary login-submit" id="routerLoginSubmit" type="submit">Entrar</button>
+        <p class="login-message" id="routerLoginMessage" aria-live="polite" hidden></p>
+      </form>
+    </div>
+  </section>
+
   <!-- Navegacion persistente entre las vistas funcionales del panel. -->
   <aside class="sidebar" aria-label="Navegacion principal">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">K</span>
+      <img class="brand-logo" src="assets/branding/mi-internet-logo-v2.svg" alt="">
       <div>
         <strong>Gestor WiFi</strong>
         <span>Router KAON</span>
@@ -54,9 +123,9 @@
     </nav>
 
     <div class="router-card" id="routerStatusCard">
-      <span class="status-dot" id="routerStatusDot"></span>
+      <span class="status-dot" id="routerStatusDot" aria-hidden="true"></span>
       <div>
-        <strong id="routerStatusText">Comprobando router</strong>
+        <strong id="routerStatusText">Leyendo interfaz WiFi</strong>
         <span id="routerStatusAddress">Estado pendiente</span>
       </div>
     </div>
@@ -72,75 +141,174 @@
       </div>
       <div class="top-actions">
         <button class="button secondary" id="reloadPanel" type="button">Reiniciar</button>
+        <button class="button secondary" id="logoutPanel" type="button">Salir</button>
         <button class="button primary" type="button" id="scanNow">Escanear red</button>
       </div>
     </header>
 
-    <!-- Vista inicial alimentada por lecturas reales del router y la base local. -->
-    <section class="view is-visible" id="dashboard" aria-labelledby="dashboard-title">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Resumen</p>
-          <h2 id="dashboard-title">Estado general</h2>
+    <!-- Inicio independiente; concentra el estado y abre las herramientas del panel. -->
+    <section class="view home-view is-visible" id="dashboard" aria-labelledby="dashboard-title">
+      <header class="home-welcome">
+        <img class="home-brand-logo" src="assets/branding/mi-internet-logo-v2.svg" alt="MI INTERNET">
+        <div class="home-welcome-copy">
+          <p class="eyebrow">Bienvenido</p>
+          <h1 id="dashboard-title">Mi Internet</h1>
+          <span class="freshness" id="dashboardFreshness">Ultima lectura: pendiente</span>
         </div>
-        <span class="freshness" id="dashboardFreshness">Ultima lectura: pendiente</span>
+        <div class="home-header-actions">
+          <button class="icon-button home-icon-button" id="homeReloadPanel" type="button" aria-label="Actualizar panel" title="Actualizar panel">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 12a9 9 0 0 1-15.17 6.55L3 16"></path>
+              <path d="M3 21v-5h5"></path>
+              <path d="M3 12a9 9 0 0 1 15.17-6.55L21 8"></path>
+              <path d="M21 3v5h-5"></path>
+            </svg>
+          </button>
+          <button class="icon-button home-icon-button" id="homeLogoutPanel" type="button" aria-label="Cerrar sesion" title="Cerrar sesion">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 17l5-5-5-5"></path>
+              <path d="M15 12H3"></path>
+              <path d="M21 19V5a2 2 0 0 0-2-2h-6"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="home-status-grid" aria-label="Estado de la red">
+        <article class="home-stat network">
+          <span class="home-stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+              <path d="M8.5 16a6 6 0 0 1 7 0"></path>
+              <path d="M12 20h.01"></path>
+            </svg>
+          </span>
+          <div>
+            <span class="metric-label">Nombre de la red</span>
+            <strong id="homeNetworkName">Detectando...</strong>
+            <small id="homeNetworkBand">Interfaz WiFi</small>
+          </div>
+        </article>
+        <article class="home-stat signal">
+          <span class="home-stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 20v-3"></path>
+              <path d="M8 20v-7"></path>
+              <path d="M12 20V9"></path>
+              <path d="M16 20V5"></path>
+              <path d="M20 20V2"></path>
+            </svg>
+          </span>
+          <div>
+            <span class="metric-label">Potencia de la senal</span>
+            <strong class="signal-summary" id="metricSignal">Sin medicion</strong>
+            <small id="metricSignalDetail">Esperando lectura</small>
+          </div>
+        </article>
+        <article class="home-stat devices">
+          <span class="home-stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </span>
+          <div>
+            <span class="metric-label">Dispositivos conectados</span>
+            <strong id="metricConnected">0</strong>
+            <small id="metricNewToday">0 nuevos hoy</small>
+          </div>
+        </article>
+        <article class="home-stat blocked">
+          <span class="home-stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="m5.7 5.7 12.6 12.6"></path>
+            </svg>
+          </span>
+          <div>
+            <span class="metric-label">Dispositivos bloqueados</span>
+            <strong id="metricBlocked">0</strong>
+            <small id="metricBlockedDetail">Lista del router</small>
+          </div>
+        </article>
       </div>
 
-      <div class="metrics">
-        <article class="metric">
-          <span class="metric-label">Conectados</span>
-          <strong id="metricConnected">0</strong>
-          <small id="metricNewToday">0 nuevos hoy</small>
-        </article>
-        <article class="metric">
-          <span class="metric-label">Usuarios bloqueados</span>
-          <strong id="metricBlocked">0</strong>
-          <small id="metricBlockedDetail">Lista del router</small>
-        </article>
-        <article class="metric">
-          <span class="metric-label">Red invitados</span>
-          <strong id="metricGuestState">Pendiente</strong>
+      <div class="home-feature-grid" aria-label="Herramientas principales">
+        <button class="home-feature-card devices" type="button" data-view-link="devices">
+          <span class="home-feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="12" rx="2"></rect>
+              <path d="M8 20h8"></path>
+              <path d="M12 16v4"></path>
+              <circle cx="17" cy="9" r="1.8"></circle>
+            </svg>
+          </span>
+          <strong>Dispositivos</strong>
+          <span id="homeDeviceStatus">Esperando lectura</span>
+        </button>
+        <button class="home-feature-card router" type="button" data-view-link="wifi">
+          <span class="home-feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <rect x="2" y="14" width="20" height="7" rx="2"></rect>
+              <path d="M6 18h.01"></path>
+              <path d="M10 18h.01"></path>
+              <path d="M15 10v4"></path>
+              <path d="M15 10a5 5 0 0 0-5-5"></path>
+              <path d="M15 6a1 1 0 0 0-1-1"></path>
+            </svg>
+          </span>
+          <strong>Mi router</strong>
+          <span id="homeRouterStatus">Interfaz pendiente</span>
+        </button>
+        <button class="home-feature-card parental" type="button" data-view-link="parental">
+          <span class="home-feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+          </span>
+          <strong>Control parental</strong>
+          <span>Proteccion disponible</span>
+        </button>
+      </div>
+
+      <div class="home-shortcuts" aria-label="Mas herramientas">
+        <button class="home-shortcut" type="button" data-view-link="guest">
+          <span class="home-shortcut-icon cyan" aria-hidden="true">GI</span>
+          <span><strong>Red invitados</strong><small id="metricGuestState">Pendiente</small></span>
           <small id="metricGuestSsid">SSID sin leer</small>
-        </article>
-        <article class="metric signal-metric">
-          <span class="metric-label">Senal WiFi</span>
-          <strong class="signal-summary" id="metricSignal">Sin medicion</strong>
-          <small id="metricSignalDetail">Esperando lectura del router</small>
-        </article>
+        </button>
+        <button class="home-shortcut" type="button" data-view-link="access">
+          <span class="home-shortcut-icon magenta" aria-hidden="true">BU</span>
+          <span><strong>Bloquear usuarios</strong><small>Control de acceso</small></span>
+        </button>
+        <button class="home-shortcut" type="button" data-view-link="history">
+          <span class="home-shortcut-icon violet" aria-hidden="true">HI</span>
+          <span><strong>Historial</strong><small>Eventos de la red</small></span>
+        </button>
+        <button class="home-shortcut" type="button" data-view-link="scan">
+          <span class="home-shortcut-icon yellow" aria-hidden="true">ER</span>
+          <span><strong>Escanear red</strong><small>Equipos locales</small></span>
+        </button>
       </div>
 
-      <div class="content-grid">
-        <section class="panel">
-          <div class="panel-header">
-            <h3>Actividad reciente</h3>
-            <button class="link-button" type="button" data-view-link="history">Ver todo</button>
-          </div>
-          <ol class="activity-list" id="activityList">
-            <li>
-              <span class="activity-dot"></span>
-              <div>
-                <strong>Esperando lectura</strong>
-                <p>El panel actualizara la actividad al leer la red.</p>
-              </div>
-            </li>
-          </ol>
-        </section>
-
-        <section class="panel compact">
-          <div class="panel-header">
-            <h3>Acciones rapidas</h3>
-          </div>
-          <div class="quick-actions">
-            <button class="quick-action" type="button" data-view-link="devices">Ver clientes</button>
-            <button class="quick-action" type="button" data-view-link="history">Ver historial</button>
-            <button class="quick-action" type="button" data-view-link="access">Bloquear usuario</button>
-            <button class="quick-action" type="button" data-view-link="wifi">Configurar WiFi</button>
-            <button class="quick-action" type="button" data-view-link="guest">Red invitados</button>
-            <button class="quick-action" type="button" data-view-link="scan">Escanear red</button>
-            <button class="quick-action" type="button" data-view-link="parental">Bloquear sitios</button>
-          </div>
-        </section>
-      </div>
+      <section class="home-activity">
+        <div class="panel-header">
+          <h2>Registro de eventos</h2>
+          <button class="link-button" type="button" data-view-link="history">Ver historial</button>
+        </div>
+        <ol class="activity-list" id="activityList">
+          <li>
+            <span class="activity-dot"></span>
+            <div>
+              <strong>Esperando lectura</strong>
+              <p>El panel actualizara la actividad al leer la red.</p>
+            </div>
+          </li>
+        </ol>
+      </section>
     </section>
 
     <!-- Vista dinamica; `panel-red.js` llena `deviceGrid` desde `/api/devices`. -->
@@ -193,20 +361,59 @@
 
     </section>
 
-    <!-- Historial independiente de conexiones, desconexiones y cambios de red. -->
+    <!-- Bitacora unificada de presencia y operaciones administrativas. -->
     <section class="view" id="history" aria-labelledby="device-history-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Actividad guardada</p>
-          <h2 id="device-history-title">Historial de conexiones</h2>
+          <p class="eyebrow">Bitacora local</p>
+          <h2 id="device-history-title">Historial de actividad</h2>
         </div>
         <button class="danger-link" id="clearDeviceHistory" type="button">Limpiar historial</button>
+      </div>
+
+      <div class="history-filters" aria-label="Filtros del historial">
+        <label class="history-search">
+          Buscar
+          <input id="historySearch" type="search" placeholder="Dispositivo, red, sitio o accion">
+        </label>
+        <label>
+          Categoria
+          <select id="historyCategoryFilter">
+            <option value="all">Todas</option>
+            <option value="device">Dispositivos</option>
+            <option value="access">Bloqueos de usuarios</option>
+            <option value="wifi">Configuracion WiFi</option>
+            <option value="parental">Control parental</option>
+            <option value="scan">Escaneos</option>
+            <option value="session">Sesiones</option>
+            <option value="system">Sistema</option>
+          </select>
+        </label>
+        <label>
+          Resultado
+          <select id="historyStatusFilter">
+            <option value="all">Todos</option>
+            <option value="success">Completados</option>
+            <option value="info">Informativos</option>
+            <option value="warning">Advertencias</option>
+            <option value="error">Errores</option>
+          </select>
+        </label>
+        <label>
+          Periodo
+          <select id="historyPeriodFilter">
+            <option value="all">Todo el tiempo</option>
+            <option value="today">Hoy</option>
+            <option value="7">Ultimos 7 dias</option>
+            <option value="30">Ultimos 30 dias</option>
+          </select>
+        </label>
       </div>
 
       <section class="panel device-history-panel">
         <div class="panel-header">
           <h3>Eventos recientes</h3>
-          <span class="freshness">Conexiones, desconexiones y cambios de red</span>
+          <span class="freshness" id="historyResultCount">0 eventos</span>
         </div>
         <ol class="device-history-list" id="deviceHistory">
           <li class="history-empty">Sin eventos recientes.</li>

@@ -75,9 +75,9 @@ La tabla `device_aliases` se crea desde `app.device_store.ensure_alias_table`:
 - `POST /api/devices/unblock`: elimina una MAC de esas mismas interfaces y
   tambien exige confirmacion completa.
 - `POST /api/guest`: activa o desactiva invitados y actualiza SSID, clave,
-  visibilidad y limite de usuarios cuando el firmware lo expone.
+  visibilidad y limite de usuarios administrado por el panel local.
 - `POST /api/primary`: actualiza SSID, clave, visibilidad y limite de usuarios
-  cuando el firmware lo expone.
+  administrado por el panel local.
 - `POST /api/scan`: detecta subred local, ejecuta Nmap y devuelve resultados.
 - `POST /api/parental/block`: crea reglas de bloqueo para un perfil.
 - `POST /api/parental/unblock`: elimina reglas de bloqueo para un perfil.
@@ -178,8 +178,10 @@ que el router quedo en la banda e indice solicitados antes de escribir y despues
 relee `WirelessMac01..20` para comprobar que la lista quedo aplicada. Reintenta
 el cambio cuando el KAON pierde el contexto y no marca exito parcial. Los
 formularios reales adjuntos usan `ClosedNetwork` para ocultar SSID primario y
-`ClosedNetworkGuest` para invitados; el limite de usuarios se aplica solo si la
-pagina del firmware incluye un campo compatible.
+`ClosedNetworkGuest` para invitados. Como el firmware adjunto no expone un
+campo nativo de maximo de clientes, el panel guarda limites locales y los aplica
+en cada lectura o escaneo bloqueando los equipos que exceden el cupo de su
+interfaz.
 
 El selector de 2.4/5 GHz del firmware entrega una pagina que navega por
 JavaScript a `wlanRadio.asp`. `KaonRouterClient` realiza esa segunda lectura de
@@ -214,9 +216,8 @@ llamadas `fetch` a `/api/`, renderizado seguro de tarjetas, filtros de busqueda,
 red primaria e invitados por banda, escaneo Nmap y modal de acciones por
 dispositivo. Tambien alterna la visibilidad local de las claves WPA desde los
 botones de ojo y muestra una vista previa tactil antes de ejecutar bloqueos de
-control parental en moviles. En los campos de limite de usuarios muestra el
-rango permitido cuando el router lo reporta y deshabilita el control cuando el
-firmware no expone ningun campo compatible.
+control parental en moviles. En los campos de limite de usuarios mantiene activo
+el rango 0-20 y muestra si el cupo lo administra el panel local.
 
 ### `view/assets/icons/`
 
