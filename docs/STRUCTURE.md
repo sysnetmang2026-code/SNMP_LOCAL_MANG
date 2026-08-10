@@ -76,7 +76,7 @@ python src/main_web.py
 Luego abrir:
 
 ```text
-http://127.0.0.1:8001
+http://127.0.0.1:8765
 ```
 
 El panel usa rutas JSON bajo `/api/` para listar dispositivos, guardar nombres

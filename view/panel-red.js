@@ -2031,7 +2031,7 @@ async function apiRequest(url, options = {}) {
   if (!contentType.toLowerCase().includes("application/json")) {
     await response.text();
     const liveServerHint = window.location.port === "5500"
-      ? "Abra el panel desde http://127.0.0.1:8001 despues de ejecutar python src/main_web.py; Live Server no responde las rutas /api/."
+      ? "Abra el panel desde http://127.0.0.1:8765 despues de ejecutar python src/main_web.py; Live Server no responde las rutas /api/."
       : "Revise que este activo el servidor Python del panel y que no se este abriendo solo como archivo estatico.";
     throw new Error(`La API local no respondio JSON (${response.status}). ${liveServerHint}`);
   }

@@ -1837,10 +1837,18 @@ def main():
 
     parser = argparse.ArgumentParser(description="Servidor web local del Gestor WiFi KAON")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", default=8001, type=int)
+    parser.add_argument("--port", default=8765, type=int)
     args = parser.parse_args()
 
-    server = QuietThreadingHTTPServer((args.host, args.port), WebHandler)
+    try:
+        server = QuietThreadingHTTPServer((args.host, args.port), WebHandler)
+    except PermissionError as error:
+        fallback_port = 9000 if args.port == 8765 else 8765
+        print(f"No se pudo abrir http://{args.host}:{args.port}: {error}")
+        print("Windows puede tener ese puerto reservado o bloqueado.")
+        print(f"Pruebe con: python src/main_web.py --port {fallback_port}")
+        raise SystemExit(1) from error
+
     print(f"Panel web disponible en http://{args.host}:{args.port}")
     print("Presione Ctrl+C para detenerlo.")
 

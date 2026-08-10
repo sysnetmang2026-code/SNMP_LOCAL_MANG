@@ -43,16 +43,23 @@ python src/main_web.py
 Luego abrir:
 
 ```text
-http://127.0.0.1:8001
+http://127.0.0.1:8765
 ```
 
 Si otro equipo de la misma red necesita abrir el panel que corre en tu PC:
 
 ```powershell
-python src/main_web.py --host 0.0.0.0 --port 8001
+python src/main_web.py --host 0.0.0.0 --port 8765
 ```
 
-Y desde ese equipo abrir `http://IP_DE_TU_PC:8001`.
+Y desde ese equipo abrir `http://IP_DE_TU_PC:8765`.
+
+Si Windows muestra `WinError 10013`, el puerto elegido esta reservado o
+bloqueado. Pruebe con otro puerto libre:
+
+```powershell
+python src/main_web.py --port 9000
+```
 
 Nota: `127.0.0.1` siempre apunta a la propia computadora. Si tu companero corre
 el proyecto en su PC, tambien debe ejecutar el servidor Python y configurar sus
