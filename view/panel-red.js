@@ -116,7 +116,7 @@ let loginPointerFrame = null;
 let loginPointerResetTimer = null;
 let pendingLoginPointer = null;
 
-const DEVICE_REFRESH_INTERVAL_MS = 10000;
+const DEVICE_REFRESH_INTERVAL_MS = 60000;
 const ACCESS_OVERRIDE_TTL_MS = 30000;
 const WIFI_BANDS = [
   { value: "2.4", label: "2.4 GHz", shortLabel: "2.4" },
