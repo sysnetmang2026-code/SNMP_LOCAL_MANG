@@ -41,10 +41,29 @@
           <h1 id="routerLoginTitle">Conectar al panel</h1>
         </div>
 
-        <div class="login-fields">
+        <p class="login-choice-label">Credenciales del router</p>
+
+        <div class="login-suggestions" role="radiogroup" aria-label="Opciones de acceso del router">
+          <button class="login-suggestion is-recommended" type="button" aria-pressed="false" data-login-username="admin" data-login-password="Cl@r0">
+            <span class="login-suggestion-kicker">Opcion recomendada</span>
+            <strong>admin</strong>
+            <span>Cl@r0</span>
+          </button>
+          <button class="login-suggestion" type="button" aria-pressed="false" data-login-username="root" data-login-password="adminHW">
+            <span class="login-suggestion-kicker">Opcion alternativa</span>
+            <strong>root</strong>
+            <span>adminHW</span>
+          </button>
+        </div>
+
+        <button class="login-other-toggle" id="routerLoginOtherToggle" type="button" aria-expanded="false" aria-controls="routerLoginCustomFields">
+          Otro usuario
+        </button>
+
+        <div class="login-fields login-custom-fields" id="routerLoginCustomFields" hidden>
           <label>
             Usuario
-            <input id="routerUsername" name="username" type="text" autocomplete="off" placeholder="admin">
+            <input id="routerUsername" name="username" type="text" autocomplete="off" placeholder="Usuario del router">
           </label>
           <label>
             Contrasena
@@ -60,18 +79,7 @@
           </label>
         </div>
 
-        <div class="login-suggestions" aria-label="Combinaciones sugeridas">
-          <button class="login-suggestion is-recommended" type="button" data-login-username="admin" data-login-password="Cl@r0">
-            <strong>admin</strong>
-            <span>Cl@r0</span>
-          </button>
-          <button class="login-suggestion" type="button" data-login-username="root" data-login-password="adminHW">
-            <strong>root</strong>
-            <span>adminHW</span>
-          </button>
-        </div>
-
-        <button class="button primary login-submit" id="routerLoginSubmit" type="submit">Entrar</button>
+        <button class="button primary login-submit" id="routerLoginSubmit" type="submit" hidden>Entrar</button>
         <p class="login-message" id="routerLoginMessage" aria-live="polite" hidden></p>
       </form>
     </div>

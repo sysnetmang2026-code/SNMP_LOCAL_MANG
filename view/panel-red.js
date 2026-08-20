@@ -90,6 +90,8 @@ const routerPassword = document.getElementById("routerPassword");
 const routerLoginSubmit = document.getElementById("routerLoginSubmit");
 const routerLoginMessage = document.getElementById("routerLoginMessage");
 const routerLoginPasswordToggle = document.getElementById("routerLoginPasswordToggle");
+const routerLoginOtherToggle = document.getElementById("routerLoginOtherToggle");
+const routerLoginCustomFields = document.getElementById("routerLoginCustomFields");
 const loginSuggestions = document.querySelectorAll("[data-login-username][data-login-password]");
 
 // Estado de cliente mantenido en memoria durante la sesion del navegador.
@@ -259,6 +261,36 @@ function setLoginMessage(message, type = "warning") {
 }
 
 /**
+ * Marca la opcion del router que se esta validando.
+ */
+function setLoginSuggestionSelection(selectedButton = null) {
+  loginSuggestions.forEach((button) => {
+    const selected = button === selectedButton;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
+/**
+ * Muestra los campos manuales solo cuando se solicitan otras credenciales.
+ */
+function setCustomLoginVisible(visible) {
+  if (routerLoginCustomFields) {
+    routerLoginCustomFields.hidden = !visible;
+  }
+
+  if (routerLoginOtherToggle) {
+    routerLoginOtherToggle.setAttribute("aria-expanded", String(visible));
+    routerLoginOtherToggle.textContent = visible ? "Ocultar otros datos" : "Otro usuario";
+  }
+
+  if (routerLoginSubmit) {
+    routerLoginSubmit.hidden = !visible;
+    routerLoginSubmit.textContent = "Entrar";
+  }
+}
+
+/**
  * Reinicia la animacion de error inspirada en el login de referencia.
  *
  * @param {string} message Texto de error a mostrar.
@@ -421,6 +453,13 @@ function showLoginScreen(message = "") {
     routerPassword.type = "password";
   }
 
+  if (routerUsername) {
+    routerUsername.value = "";
+  }
+
+  setLoginSuggestionSelection(null);
+  setCustomLoginVisible(false);
+
   routerLoginPasswordToggle?.classList.remove("is-visible");
   routerLoginPasswordToggle?.setAttribute("aria-label", "Mostrar contrasena");
 
@@ -498,7 +537,7 @@ async function submitRouterLogin(event) {
   const password = routerPassword?.value || "";
 
   if (!username || !password) {
-    triggerLoginError("Escriba el usuario y la contrasena del router.");
+    triggerLoginError("Seleccione una opcion o use Otro usuario.");
     return;
   }
 
@@ -682,32 +721,12 @@ function deviceTypeLabel(type) {
   return labels[type] || labels.unknown;
 }
 
-/**
- * Describe de donde se obtuvo el dispositivo visible.
- *
- * @param {object} device Dispositivo normalizado por la API.
- * @returns {string} Etiqueta corta para la tarjeta.
- */
-function deviceSourceLabel(device) {
-  const network = device.network || (device.band ? `WiFi ${device.band} GHz` : "");
+function isIpAddress(value) {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(String(value || "").trim());
+}
 
-  if (device.source && device.source.includes("+ping")) {
-    return "Activo por ping";
-  }
-
-  if (device.source === "database") {
-    return device.connected ? "Escaneo local + ping" : "Historial local";
-  }
-
-  if (device.source === "history") {
-    return "Historial";
-  }
-
-  if (device.source === "router+nmap") {
-    return `${network || "Router"} + escaneo`;
-  }
-
-  return network || "Router";
+function deviceCardName(device, fallbackLabel) {
+  return isIpAddress(device.name) ? fallbackLabel : device.name;
 }
 
 /**
@@ -722,15 +741,15 @@ function deviceStatusText(device) {
   }
 
   if (device.connected && device.source && device.source.includes("+ping")) {
-    return "Activo por ping local";
+    return "Conectado";
   }
 
   if (device.connected && device.source === "database") {
-    return "Activo por escaneo/ping";
+    return "Conectado";
   }
 
   if (device.connected && device.source === "router+nmap") {
-    return "Conectado y detectado por el escaneo";
+    return "Conectado";
   }
 
   if (device.connected) {
@@ -1082,6 +1101,9 @@ function renderDevices() {
     const blockClass = device.blocked ? "unblock" : "block";
     const signal = deviceSignal(device);
     const statusText = deviceStatusText(device);
+    const typeLabel = deviceTypeLabel(device.type);
+    const displayName = deviceCardName(device, typeLabel);
+    const showTypeLabel = displayName !== typeLabel;
     const cardState = `${device.blocked ? "is-blocked" : ""} ${!device.connected ? "is-offline" : ""}`.trim();
 
     return `
@@ -1093,12 +1115,10 @@ function renderDevices() {
         <div class="device-avatar ${escapeHtml(device.type)}">
           ${deviceIcon(device.type)}
         </div>
-        <h3>${escapeHtml(device.name)}</h3>
-        <p>${escapeHtml(deviceTypeLabel(device.type))}</p>
+        <h3>${escapeHtml(displayName)}</h3>
+        ${showTypeLabel ? `<p>${escapeHtml(typeLabel)}</p>` : ""}
         <span class="device-status-line ${device.connected ? "online" : "offline"}">${escapeHtml(statusText)}</span>
         <div class="device-meta-row">
-          <span class="device-meta">${escapeHtml(device.ip || "IP no disponible")}</span>
-          <span class="device-meta source">${escapeHtml(deviceSourceLabel(device))}</span>
           <span class="device-meta seen">Visto: ${escapeHtml(formatTimestamp(device.last_seen))}</span>
         </div>
         <div class="device-actions">
@@ -2934,26 +2954,45 @@ loginScreen?.addEventListener("pointerdown", (event) => {
     pulseLoginTouch(event.clientX, event.clientY);
   }
 });
+routerLoginOtherToggle?.addEventListener("click", () => {
+  const visible = Boolean(routerLoginCustomFields && routerLoginCustomFields.hidden);
+  setLoginSuggestionSelection(null);
+  setCustomLoginVisible(visible);
+  loginScreen?.classList.remove("has-login-error");
+  setLoginMessage("");
+
+  if (visible) {
+    routerUsername?.focus();
+    setLoginIntent("user");
+  }
+});
 routerUsername?.addEventListener("focus", () => setLoginIntent("user"));
 routerPassword?.addEventListener("focus", () => setLoginIntent("password"));
 routerUsername?.addEventListener("input", () => {
+  setLoginSuggestionSelection(null);
   loginScreen?.classList.remove("has-login-error");
   setLoginMessage("");
   setLoginIntent("user");
 });
 routerPassword?.addEventListener("input", () => {
+  setLoginSuggestionSelection(null);
   loginScreen?.classList.remove("has-login-error");
   setLoginMessage("");
   setLoginIntent("password");
 });
 loginSuggestions.forEach((button) => {
   button.addEventListener("click", () => {
+    if (routerLoginSubmit?.disabled) {
+      return;
+    }
+
     routerUsername.value = button.dataset.loginUsername || "";
     routerPassword.value = button.dataset.loginPassword || "";
+    setLoginSuggestionSelection(button);
+    setCustomLoginVisible(false);
     loginScreen?.classList.remove("has-login-error");
     setLoginMessage("");
-    setLoginIntent("password");
-    routerPassword.focus();
+    routerLoginForm?.requestSubmit();
   });
 });
 primarySaveButtons.forEach((button) => {
