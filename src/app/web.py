@@ -46,7 +46,7 @@ from app.site_blocking_profiles import (
     get_site_blocking_profile,
 )
 from config import BASE_DIR, DATABASE_PATH, ROUTER_URL
-from network.adapters import get_subnet
+from network.adapters import get_default_gateway, get_subnet
 from network.nmap_scanner import EscanerRedDB, is_router_device
 from routers.kaon_client import KaonRouterClient
 from validators import is_valid_mac, normalize_mac
@@ -75,8 +75,10 @@ def record_audit_event(*args, **kwargs):
 def crear_cliente_router(credentials):
     """Construye un cliente KAON con credenciales de la sesion local."""
 
+    router_url = str(credentials.get("router_url") or ROUTER_URL).strip().rstrip("/")
+
     return KaonRouterClient(
-        router_url=ROUTER_URL,
+        router_url=router_url,
         username=credentials.get("username"),
         password=credentials.get("password"),
         post_timeout=3,
@@ -126,7 +128,7 @@ def _auth_token_from_cookie(cookie_header):
     return morsel.value if morsel else ""
 
 
-def create_auth_session(username, password):
+def create_auth_session(username, password, router_url=None):
     """Guarda credenciales del router solo en memoria y devuelve un token."""
 
     now = time.time()
@@ -137,6 +139,7 @@ def create_auth_session(username, password):
         AUTH_SESSIONS[token] = {
             "username": username,
             "password": password,
+            "router_url": router_url or ROUTER_URL,
             "created_at": now,
             "last_seen": now,
         }
@@ -329,6 +332,46 @@ def local_subnet_label():
         return ""
 
     return str(subnet) if subnet is not None else ""
+
+
+def local_network_status():
+    """Resume la red local del host que ejecuta el panel."""
+
+    gateway = get_default_gateway()
+
+    return {
+        "subnet": local_subnet_label(),
+        "gateway": gateway or "",
+        "router_url": f"http://{gateway}" if gateway else ROUTER_URL,
+        "host_wifi": get_host_wifi_connection(),
+    }
+
+
+def normalize_router_url(value):
+    """Normaliza una IP o URL del router para crear el cliente HTTP."""
+
+    value = str(value or "").strip().rstrip("/")
+
+    if not value:
+        gateway = get_default_gateway()
+
+        if not gateway:
+            raise ValueError(
+                "No se detecto una red local activa. Conectese al WiFi del router "
+                "e intente nuevamente."
+            )
+
+        value = gateway
+
+    if "://" not in value:
+        value = f"http://{value}"
+
+    parsed = urlparse(value)
+
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("La direccion del router no es valida.")
+
+    return value
 
 
 def _normalize_netsh_label(value):
@@ -816,18 +859,25 @@ def public_error_message(error):
     """Convierte errores tecnicos del router en mensajes seguros para la UI."""
 
     message = str(error)
+    lowered = message.lower()
+
+    if "404" in message and "wlanaccess" in lowered:
+        return (
+            "Este router todavia no es compatible con el panel. "
+            "Podra agregarse soporte para este modelo mas adelante."
+        )
 
     if "HTTPConnectionPool" in message or "WinError 10013" in message:
         return (
-            "No se pudo conectar con el router local. "
-            "Revise que el router este accesible y que Python tenga permiso de red local."
+            "No pudimos comunicarnos con el router. Revise que este conectado al WiFi "
+            "correcto e intente nuevamente."
         )
 
-    if "timed out" in message.lower() or "timeout" in message.lower():
-        return "El router tardo demasiado en responder. Intente actualizar en unos segundos."
+    if "timed out" in lowered or "timeout" in lowered:
+        return "El router tardo mas de lo esperado en responder. Intente de nuevo en unos segundos."
 
     if "401" in message:
-        return "El router rechazo las credenciales. Revise usuario y contrasena."
+        return "No pudimos iniciar sesion. Revise el usuario y la contrasena del router."
 
     return message
 
@@ -912,7 +962,7 @@ class WebHandler(BaseHTTPRequestHandler):
         self.respond_json({
             "ok": False,
             "auth_required": True,
-            "error": "Inicie sesion con las credenciales del router KAON.",
+            "error": "Inicie sesion con las credenciales del router.",
         }, status=401)
         return False
 
@@ -1050,11 +1100,13 @@ class WebHandler(BaseHTTPRequestHandler):
         """Informa si el navegador ya tiene una sesion local activa."""
 
         session = self.auth_session()
+        network = local_network_status()
         self.respond_json({
             "ok": True,
             "authenticated": bool(session),
-            "router_url": ROUTER_URL,
+            "router_url": session.get("router_url", network["router_url"]) if session else network["router_url"],
             "username": session.get("username", "") if session else "",
+            "network": network,
         })
 
     def handle_history(self, params=None):
@@ -1082,6 +1134,16 @@ class WebHandler(BaseHTTPRequestHandler):
         username = str(payload.get("username") or "").strip()
         password = str(payload.get("password") or "")
 
+        try:
+            router_url = normalize_router_url(payload.get("router_url"))
+        except ValueError as error:
+            self.respond_json({
+                "ok": False,
+                "auth_error": True,
+                "error": str(error),
+            }, status=400)
+            return
+
         if not username or not password:
             record_audit_event(
                 "session",
@@ -1094,13 +1156,14 @@ class WebHandler(BaseHTTPRequestHandler):
             self.respond_json({
                 "ok": False,
                 "auth_error": True,
-                "error": "Escriba el usuario y la contrasena del router KAON.",
+                "error": "Escriba el usuario y la contrasena del router.",
             }, status=400)
             return
 
         credentials = {
             "username": username,
             "password": password,
+            "router_url": router_url,
         }
 
         try:
@@ -1111,7 +1174,7 @@ class WebHandler(BaseHTTPRequestHandler):
             router_status = getattr(response, "status_code", None)
 
             if router_status == 401:
-                message = "El usuario y la contrasena no coinciden con el router KAON."
+                message = "No pudimos iniciar sesion. Revise el usuario y la contrasena del router."
                 status = 401
             else:
                 message = public_error_message(error)
@@ -1133,7 +1196,7 @@ class WebHandler(BaseHTTPRequestHandler):
             }, status=status)
             return
 
-        token = create_auth_session(username, password)
+        token = create_auth_session(username, password, router_url=router_url)
         self._auth_session = get_auth_session(f"{AUTH_COOKIE_NAME}={token}")
         record_audit_event(
             "session",
@@ -1145,9 +1208,9 @@ class WebHandler(BaseHTTPRequestHandler):
         self.respond_json({
             "ok": True,
             "authenticated": True,
-            "router_url": ROUTER_URL,
+            "router_url": router_url,
             "username": username,
-            "message": "Credenciales aceptadas por el router KAON.",
+            "message": "Credenciales aceptadas por el router.",
         }, headers={"Set-Cookie": _auth_cookie_header(token)})
 
     def handle_auth_logout(self):

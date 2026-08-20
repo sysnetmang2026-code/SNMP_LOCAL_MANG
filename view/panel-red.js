@@ -482,7 +482,7 @@ async function initializeAuthGate() {
 
     showLoginScreen();
   } catch (error) {
-    showLoginScreen("No se pudo comprobar la sesion local del panel.");
+    showLoginScreen("No pudimos comprobar la sesion del panel. Intente abrirlo nuevamente.");
   }
 }
 
@@ -498,14 +498,14 @@ async function submitRouterLogin(event) {
   const password = routerPassword?.value || "";
 
   if (!username || !password) {
-    triggerLoginError("Escriba el usuario y la contrasena del router KAON.");
+    triggerLoginError("Escriba el usuario y la contrasena del router.");
     return;
   }
 
   loginScreen?.classList.add("is-login-loading");
   loginScreen?.classList.remove("has-login-error");
   setLoginIntent("loading");
-  setLoginMessage("Validando la combinacion KAON...", "info");
+  setLoginMessage("Validando las credenciales del router...", "info");
   routerLoginSubmit.disabled = true;
   routerLoginSubmit.textContent = "Validando...";
 
@@ -521,7 +521,7 @@ async function submitRouterLogin(event) {
     routerLoginSubmit.disabled = false;
     routerLoginSubmit.textContent = "Entrar";
     loginScreen?.classList.remove("is-login-loading");
-    triggerLoginError(error.message || "El usuario y la contrasena no coinciden.");
+    triggerLoginError(error.message || "No pudimos iniciar sesion. Revise los datos e intente nuevamente.");
   }
 }
 
@@ -1833,7 +1833,7 @@ function updateRouterConnectionCard(data = {}) {
       homeRouterStatus.textContent = `${connection.title} - ${connection.ssid}`;
     }
   } else {
-    const fallbackTitle = routerReachable ? "Interfaz KAON activa" : "Interfaz sin confirmar";
+    const fallbackTitle = routerReachable ? "Interfaz del router activa" : "Interfaz sin confirmar";
 
     if (routerStatusText) {
       routerStatusText.textContent = fallbackTitle;
@@ -1850,7 +1850,7 @@ function updateRouterConnectionCard(data = {}) {
     }
 
     if (homeNetworkBand) {
-      homeNetworkBand.textContent = routerReachable ? "Router KAON" : "Sin lectura local";
+      homeNetworkBand.textContent = routerReachable ? "Router local" : "Sin lectura local";
     }
 
     if (homeRouterStatus) {
@@ -2045,7 +2045,7 @@ async function apiRequest(url, options = {}) {
   }
 
   if (response.status === 401 && data.auth_required) {
-    showLoginScreen(data.error || "Inicie sesion con las credenciales del router KAON.");
+    showLoginScreen(data.error || "Inicie sesion con las credenciales del router.");
     const authError = new Error(data.error || "Sesion requerida.");
     authError.authRequired = true;
     throw authError;

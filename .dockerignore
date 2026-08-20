@@ -1,0 +1,9 @@
+.git
+.agents
+.venv
+env
+__pycache__/
+*.py[cod]
+*.log
+.env
+data/*.db

@@ -1,0 +1,15 @@
+services:
+  panel-kaon:
+    build: .
+    container_name: panel-kaon
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      ROUTER_URL: "${ROUTER_URL:-http://192.168.1.1}"
+      ROUTER_HOST: "${ROUTER_HOST:-192.168.1.1}"
+    volumes:
+      - ./data:/app/data
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
