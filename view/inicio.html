@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inicio | MiInternet</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+</head>
+<body>
+    <div class="container-fluid text-center" id="bienvenidaMsg"> 
+        Bienvenido
+        <img href="img/Mi.png">
+        <div class="container text-center">
+          <div class="row">
+            <div class="col-6 col-sm-6 basic-info-column">
+              <div class="card">
+                <div class="card-body">
+                  <i class="fa fa-wifi">
+                  </i>
+                  Nombre de la red
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-sm-6 basic-info-column">
+              <div class="card">
+                <div class="card-body">
+                  <i class="fa fa-signal">
+                  </i>
+                  Potencia de la senial
+                </div>
+              </div>
+            </div>
+
+            <!-- Force next columns to break to new line at md breakpoint and up -->
+            <div class="w-100 d-none d-md-block"></div>
+
+            <div class="col-6 col-sm-6 basic-info-column">
+              <div class="card">
+                <div class="card-body">
+                  <i class="fa fa-user">
+                  </i>
+                  Cantidad de dispositivos
+                </div>
+              </div>
+            </div>
+            <div class="col-6 col-sm-6 basic-info-column">
+              <div class="card">
+                <div class="card-body">
+                  <i class="fa fa-ban">
+                  </i>
+                  Dispositivos bloqueados
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+    </div>
+    <div class="container" id="contenedorPrincipal">
+        <div class="container text-center">
+            <div class="row">
+                <a href="dispositivos.html" class="col d-flex align-items-center justify-content-center">
+                    <div class="card" style="width: 22rem;">
+                      <!-- <i class="fa fa-desktop fa-6" aria-hidden="true"></i> -->
+                      <img src="https://tse1.mm.bing.net/th/id/OIP.KS7OQlE-dArH6GZsk9WYogAAAA?cb=thfc1falcon2&rs=1&pid=ImgDetMain&o=7&rm=3" class="img-thumbnail" alt="..." title="ver dispositivos">
+                        <div class="card-body">
+                            Dispositivos
+                            <div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+                <!-- <a href="router_info.html"> -->
+                  <a href="router_info.html" class="col d-flex align-items-center justify-content-center">
+                      <div class="card" style="width: 22rem;" id="myRouterCard">
+                          <img src="https://tse1.mm.bing.net/th/id/OIP.KS7OQlE-dArH6GZsk9WYogAAAA?cb=thfc1falcon2&rs=1&pid=ImgDetMain&o=7&rm=3" class="img-thumbnail" alt="...">
+                          <div class="card-body">
+                              Mi Router
+                              <div>
+                              </div>
+                          </div>
+                      </div>
+                  </a>
+                <!-- </a> -->
+                <a href="control_parental.html" class="col d-flex align-items-center justify-content-center">
+                    <div class="card" style="width: 22rem;">
+                        <img src="https://tse1.mm.bing.net/th/id/OIP.KS7OQlE-dArH6GZsk9WYogAAAA?cb=thfc1falcon2&rs=1&pid=ImgDetMain&o=7&rm=3" class="img-thumbnail" alt="...">
+                        <div class="card-body">
+                            Control Parental
+                            <div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container text-center">
+      <div class="row">
+        <div class="col">
+          Registro de eventos de la app
+        </div>
+      </div>
+    </div>
+  
+  
+  <div class="modal" id="myModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Modal title</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p>Modal body text goes here.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary">Save changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+    <script src="inicio.js"></script>
+</body>
+</html>
+
+<!-- Button trigger modal -->
+<!-- <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#exampleModal">
+  Launch demo modal
+</button> -->
+
+<!-- Modal -->
+<div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5" id="exampleModalLabel">Bienvenido</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Por favor, ingrese las credenciales
+        <div class="card">
+            <div class="card-body">
+                Usuario
+                <div class="input-group input-group-sm mb-3">
+                    <span class="input-group-text" id="inputGroup-sizing-sm">
+                        <i class="fa fa-user"><!-- <img src="img\user-solid.png"> --></i>
+                    </span>
+                    <input type="text" class="form-control" aria-label="Sizing example input" aria-describedby="inputGroup-sizing-sm" id="inputUser" title="escriba aqui el usuario">
+                </div>
+                Contasenia
+                <div class="input-group input-group-sm mb-3">
+                    <span class="input-group-text" id="inputGroup-sizing-sm">
+                      <i class="fa fa-lock"></i>
+                    </span>
+                    <input type="text" class="form-control" aria-label="Sizing example input" aria-describedby="inputGroup-sizing-sm" id="inputClave" title="escriba aqui la clave">
+                </div>
+            </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <!-- <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button> -->
+        <button type="button" class="btn btn-primary">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
